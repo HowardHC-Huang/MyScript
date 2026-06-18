@@ -1,0 +1,110 @@
+i = 1
+timeout = 50
+varstart = 2073600000  ; 86400,000*24 (int最大:2147483647=24.85天)  ####for計時
+logautoclosemode 1
+logopen "AT!reset_TimeSpent.log" 0 1  ; logopen "AT!reset_TimeSpent.log" 0 1 0 "1" 第5th參數:1開啟時戳
+
+while i <= 11  ; 共做 i-1 回合
+
+	; 1.反覆確認連線狀態
+	while 1
+		; 問連線狀態(也可用testlink看result):
+		sprintf2 COMport "/C=%s" param2  ;param2值是多少?
+		connect COMport
+        ; result用過會不見!!!! 小心!!!! (下四行code試跑即知)
+        ; sprintf2 linkStatus1 'Link status= %d' result
+        ; dispstr linkStatus1#10#13
+        ; sprintf2 linkStatus2 'Link status= %d' result
+        ; dispstr linkStatus2#10#13
+
+        ; 因result用過會不見，先把result存進變數linkStatusInt
+        linkStatusInt = result
+
+		if linkStatusInt == 2 then
+			; varstart = 2073600000  一開頭初始化(寫在迴圈外)
+            ; sprintf2 startTime "Start time:%d msec" varstart
+            ; dispstr startTime#10#13
+            ; pause 3
+
+            ;####for計時####: 上輪AT!reset完成
+            uptime varend
+            ; sprintf2 endTime "End time:%d msec" varend
+            ; dispstr endTime#10#13
+			tspent = varend - varstart
+            ; tspent = (varend - varstart) / 1000
+            sprintf2 resetTime "AT!reset time: %dmsec" tspent
+			if tspent > 0 then
+                dispstr resetTime#10#13#32#10#13
+            endif
+
+            ;####測試開始點
+			sprintf2 linkStatus "LinkStatus:%d COM successfully connected. Start testing now..." linkStatusInt
+            dispstr linkStatus#10#13  ;13CR,10LF
+            sprintf2 round 'Testing AT!reset with normal boot. Round: %d' i  ;輸出"內容"
+			dispstr round#10#13  ;輸出到terminal
+            statusbox round 'Testing'  ;輸出到box
+            pause 1
+			break
+        elseif linkStatusInt == 1 then  ;失敗就不斷重連
+            sprintf2 linkStatus "LinkStatus:%d. COM NOT connected yet. Re-try every 1sec." linkStatusInt
+            statusbox linkStatus#10#13
+			pause 1  ;2 sec後再試
+        endif
+
+	endwhile
+
+	;####下發指令:ATi + 重開機
+	pause 10  ;下AT!reset後:port斷需約9sec; 開機後:可連(port通)需約25sec, 可收(收ATcmd)需約35sec
+    sendln 'ATi'
+	mpause 500
+	waitln 'OK'
+	pause 1
+    if result == 0 then
+        goto Error
+    endif
+	sendln 'AT!reset'
+	mpause 500
+	waitln 'OK'
+    pause 1
+    ; timeout go to error
+    if result == 0 then
+        goto Error
+    endif
+
+    ;####for計時: reset開始
+	uptime varstart
+    ; sprintf2 startTime "Start time:%d msec" varstart
+    ; dispstr startTime#10#13
+    
+    ;Error handling結束後的進入點
+    :Resume
+
+    ;確保AT!reset斷開用.AT!reset下發後不會立即斷開(port斷需約9.5sec), 放do loop確保斷開後才往下執行
+    do
+        pause 10
+        testlink
+    loop while result == 2
+
+
+	i = i + 1  ;i是test round數,回合完成才+1
+
+endwhile
+
+; stop marco
+messagebox "Test finished. Marco will be closed." "Message"
+end
+
+
+;####Error Handling 面對它→接受它→處理它→放下它
+
+;面對它 (跳進來了)
+:Error
+;接受它 (承認錯誤發生了)
+sprintf2 errorMessage "Error happened. Record to log, then continue to next round."
+statusbox errorMessage "Error message";輸出到box
+;處理它 (輸出到log)
+logwrite "Error happened. Continue to next round."#10#13
+disconnect
+pause 5  ;debug用, 之後可刪
+;放下它
+goto Resume

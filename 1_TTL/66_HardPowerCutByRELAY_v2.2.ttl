@@ -1,0 +1,124 @@
+count= 1
+timeout= 1
+getdir mydir
+getdate strdate "%Y%m%d"
+
+; == For Connection: RELAY's port; MODEM's port ==
+; == For Test setting: Interval for the power cut; Test Rounds ==
+inputbox "Please enter your R-E-L-A-Y COM port:" "RELAY COM port"
+RLY_COMport = inputstr
+sprintf2 Conn_RLY_COMport "/C=%s" RLY_COMport
+
+inputbox "Please enter your DUT-Modem COM port:" "DUT-Modem COM port"
+DUT_COMport = inputstr
+sprintf2 Conn_DUT_COMport "/C=%s" DUT_COMport
+
+inputbox "How many Milli-SECONDS would you like to wait, for a power cut:" "Power cut time"
+pwrcut_msec = inputstr
+str2int int_pwrcut_msec pwrcut_msec
+
+inputbox "How many TEST ROUNDS would you like to repeat:" "Test Round"
+testRnd = inputstr
+str2int int_testRnd testRnd
+
+
+
+; for i 1 200    ;!!!! 200rounds  (intvar 1st > 2nd than stop)
+for i 1 int_testRnd
+
+  ; o RELAY's "ON" duty cycle:
+  ;   - Connect to RELAY first:
+  connect Conn_RLY_COMport
+
+  ;   - "ON" for <pwrcut_msec>:
+  dispstr 'Relay ON for 'pwrcut_msec' msec...'#10#13    ;!!!!
+  ; send 160 1 1 162
+  send $A0 $01 $01 $A2;
+  mpause int_pwrcut_msec
+  closett
+
+  ; o RELAY's "OFF" duty cycle:
+  ;   - Connect to RELAY first:
+  connect Conn_RLY_COMport
+
+  ;   - "OFF" the RELAY:
+  dispstr 'Relay OFF...'#10#13
+  ; send 160 1 0 161
+  send $A0 $01 $00 $A1;
+  pause 2
+  closett
+
+
+
+  ; o Checking DUT status (DUT need to be "ON" when checking status):
+  ;   o RELAY: ON:
+  ;     - Connect to RELAY first:
+  connect Conn_RLY_COMport
+
+  dispstr 'Relay ON... for checking DUT status'#10#13
+  ; send 160 1 1 162
+  send $A0 $01 $01 $A2;
+  pause 33
+
+  closett  
+
+
+
+  ; -for DUT: Checking SKU...
+  connect Conn_DUT_COMport
+  pause 1
+
+  ; -Log Output 
+  sprintf2 filename '%s\PowerCutTesting_%dms_%s.log' mydir int_pwrcut_msec strdate
+  logopen filename 0 1    ;Start Logging (every content SHOWN in TERA will be recorded)
+  
+  sprintf2 report '!PowerCut test current count: %d.' count
+  dispstr report#10#13   ;To SHOW in TERA "dispstr" / To OUTPUT in MARCO "sprintf2" 
+  pause 1
+  
+  count = count + 1  
+  dispstr #10#13
+  sendln 'AT!sku?'
+  pause 1
+  wait '!SKU: 1105039'
+  if result = 1 then
+    break
+  ; else
+  ; ...
+  endif
+
+  logclose
+  
+  closett
+
+
+  ; ==for RELAY: OFF==
+  connect Conn_RLY_COMport
+
+  dispstr 'Relay OFF...'#10#13
+  ; send 160 1 0 161
+  send $A0 $01 $00 $A1;
+  pause 2
+  
+  closett
+
+next
+
+
+
+; ====For Log output====
+connect Conn_RLY_COMport
+
+sprintf2 filename '%s\PowerCut_test_%dms.log' mydir int_pwrcut_msec
+logopen filename 0 1
+
+dispstr 'Test End.'#10#13
+; sprintf2 report '!PowerCut test count:%d.' count
+; dispstr report#13#10#10
+pause 3
+
+logclose
+closett
+
+
+end

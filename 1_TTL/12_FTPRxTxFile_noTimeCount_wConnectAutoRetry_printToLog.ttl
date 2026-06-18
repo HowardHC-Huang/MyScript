@@ -1,0 +1,299 @@
+; Initialization
+i = 1
+timeout = 3
+
+; LOG's name setting:
+logautoclosemode 1    ; if Macro關閉, log就關閉
+logNamestr = "IE12_FTP_Send_Rcv_"    ; !!!!請輸入: "此腳本用途名稱"
+gettime logTimestr "log_%Y%m%d_%H%M%S.log"    ; log後綴, "時間戳記"
+sprintf2 logFileName '%s%s' logNamestr logTimestr
+dispstr logFileName #10 #13    ; ^^^^ for debug
+logopen logFileName 0 1 0 1
+;logopen <檔名> <換行符號> <接續編寫> <純文字> <時間> <隱藏記錄框>
+
+; DUT_COM_port setting:
+inputbox "Please enter your DUT-Modem COM port:" "DUT-Modem COM port"
+DUT_COMport = inputstr
+sprintf2 Conn_DUT_COMport "/C=%s" DUT_COMport
+
+; Test_round setting:
+inputbox "How many TEST ROUNDS would you like to repeat:" "Test Round"
+testRnd = inputstr
+str2int int_testRnd testRnd
+
+
+
+; # 連線DUT
+connect Conn_DUT_COMport
+
+; 動作迴圈: " 連線block + 指令輸入block"
+for i 1 int_testRnd
+
+    ; #### 連線 block ####
+    ; 0a. 連線
+    connect Conn_DUT_COMport    ; !!!! You must "CONNECT" first then script will be executed...
+    sprintf2 testRoundstr "== FTP_Send_Rcv Test count: %i : ==" i
+    dispstr '***********************************************' #10 #13
+    dispstr '*****************  " msg "  *******************' #10 #13
+    dispstr '***********************************************' #10 #13
+    ; or
+    ; dispstr testRoundstr #10 #13
+
+    ; 0b. 上步連線的果: "DUT連線狀態"檢查
+    connect Conn_DUT_COMport    ; Do CONNECT again in purpose, for "linkStatusInt" below 
+    linkStatusInt = result    ; (先將連線結果,存起來)
+    if linkStatusInt == 2 then    ; 連線狀態=2: BOTH "Connection" OK & "Link" OK
+        ; 將連線狀態提示by box
+        sprintf2 linkStatusPrompt2 "Test Round %i    LinkStatus=%d: COM connected SUCCESSFULLY.  Begin to test..." i linkStatusInt
+        statusbox linkStatusPrompt2 'Connection Status'
+        dispstr linkStatusPrompt2 #10 #13  ;13CR,10LF
+    
+    elseif linkStatusInt == 1 then    ; 連線狀態=1: "Connection (to HOST)" XX  but  "Link (to Tera)" OK)
+        sprintf2 linkStatusPrompt1 "Test Round %i    LinkStatus:%d. COM NOT connected." i linkStatusInt
+        statusbox linkStatusPrompt1 'Connection Status'
+        dispstr linkStatusPrompt1 #10 #10 #13
+        ; !!!!TBD!!!! should plan what action should be taken if connection FAILED (=1)
+    endif
+
+
+    ; #### 指令輸入 block ####
+    ; 1. Show FW info
+    dispstr '1. Show FW info' #10 #13
+    sendln 'ATi'
+    mpause 250
+    waitln 'OK'
+    ; Error handling:
+    if result == 0 then
+        sprintf2 errorMessage "->Error happened. At round: %i . Record to log; Disconnect, then continue to next round." i
+        statusbox errorMessage 'Error'   ;box顯示
+        dispstr errorMessage #10 #13 #10 #13
+        ; disconnect
+        closesbox
+    endif
+    dispstr #10 #13
+    
+    ; 2. Configure FTP connection
+    dispstr '2. Configure FTP connection' #10 #13
+    sendln 'AT+KFTPCFG=1,"202.39.33.108","teddy","teddy123"'
+    mpause 250
+    waitln 'OK'
+    ; Error handling:
+    if result == 0 then
+        sprintf2 errorMessage "->Error happened. At round: %i . Record to log; Disconnect, then continue to next round." i
+        statusbox errorMessage 'Error'   ;box顯示
+        dispstr errorMessage #10 #13 #10 #13
+        ; disconnect
+        closesbox
+    endif
+    dispstr #10 #13
+
+    ; 3. Start FTP connection
+    dispstr '3. Start FTP connection' #10 #13
+    sendln 'AT+KFTPCNX=0'
+    mpause 250
+    waitln '+KFTP_IND: 0,1'
+    ; Error handling:
+    if result == 0 then
+        sprintf2 errorMessage "->Error happened. At round: %i . Record to log; Disconnect, then continue to next round." i
+        statusbox errorMessage 'Error'   ;box顯示
+        dispstr errorMessage #10 #13 #10 #13
+        ; disconnect
+        closesbox
+    endif
+    dispstr #10 #13
+
+    ; 4. List the size of a specific file
+    dispstr '4. Get specific file size from FTP server and show' #10 #13
+    sendln 'AT+KFTPLS=0,,"text.txt"'
+    mpause 250
+    waitln '+KFTPLS: 0: text.txt 8'
+    ; Error handling:
+    if result == 0 then
+        sprintf2 errorMessage "->Error happened. At round: %i . Record to log; Disconnect, then continue to next round." i
+        statusbox errorMessage 'Error'   ;box顯示
+        dispstr errorMessage #10 #13 #10 #13
+        ; disconnect
+        closesbox
+    endif
+    dispstr #10 #13
+
+    ; 5. Receive FTP file
+    dispstr '5. View specific file content from FTP server and show' #10 #13
+    sendln 'AT+KFTPRCV=0,,,"text.txt"'
+    mpause 500
+    waitln 'TESTABC'
+    ; Error handling:
+    if result == 0 then
+        sprintf2 errorMessage "->Error happened. At round: %i . Record to log; Disconnect, then continue to next round." i
+        statusbox errorMessage 'Error'   ;box顯示
+        dispstr errorMessage #10 #13 #10 #13
+        ; disconnect
+        closesbox
+    endif
+    dispstr #10 #13
+
+    ; 6. Send FTP file
+    dispstr '6. New ADD specific file to FTP server' #10 #13
+    sendln 'AT+KFTPSND=0,,,"A82_auto.txt"'
+    mpause 250
+    waitln 'CONNECT'
+    ; Error handling:
+    if result == 0 then
+        sprintf2 errorMessage "->Error happened. At round: %i . Record to log; Disconnect, then continue to next round." i
+        statusbox errorMessage 'Error'   ;box顯示
+        dispstr errorMessage #10 #13 #10 #13
+        ; disconnect
+        closesbox
+    endif
+    dispstr #10 #13
+
+    ; "DATA MODE" input
+    sendln 'TestingABC123'
+    mpause 200
+    send '+++'    ; 不可用sendln,尾巴有LF/CR也會傳入socket
+    mpause 250
+    waitln '+KFTP_IND: 0, 2, 14'
+    ; Error handling:
+    if result == 0 then
+        sprintf2 errorMessage "->Error happened. At round: %i . Record to log; Disconnect, then continue to next round." i
+        statusbox errorMessage 'Error'   ;box顯示
+        dispstr errorMessage #10 #13 #10 #13
+        ; disconnect
+        closesbox
+    endif
+    dispstr #10 #13
+
+    ; 6a. Check if new file is ADDED SUCCESSFULLY, by checking its size
+    dispstr '6a. Check if new file is ADDED SUCCESSFULLY, by checking its size' #10 #13
+    sendln 'AT+KFTPLS=0,,"A82_auto.txt"'
+    mpause 250
+    waitln '+KFTPLS: 0: A82_auto.txt 14'
+    ; Error handling:
+    if result == 0 then
+        sprintf2 errorMessage "->Error happened. At round: %i . Record to log; Disconnect, then continue to next round." i
+        statusbox errorMessage 'Error'   ;box顯示
+        dispstr errorMessage #10 #13 #10 #13
+        ; disconnect
+        closesbox
+    endif
+    dispstr #10 #13
+
+    ; 6b. Check if new file is ADDED SUCCESSFULLY, by receiving its content
+    dispstr '6b. Check if new file is ADDED SUCCESSFULLY, by receiving its content' #10 #13
+    sendln 'AT+KFTPRCV=0,,,"A82_auto.txt"'
+    mpause 500
+    waitln 'TestingABC123'
+    ; Error handling:
+    if result == 0 then
+        sprintf2 errorMessage "->Error happened. At round: %i . Record to log; Disconnect, then continue to next round." i
+        statusbox errorMessage 'Error'   ;box顯示
+        dispstr errorMessage #10 #13 #10 #13
+        ; disconnect
+        closesbox
+    endif
+    dispstr #10 #13
+
+    ; 7. Delete FTP files
+    dispstr '7. Delete specific file on FTP server' #10 #13
+    sendln 'AT+KFTPDEL=0,,"A82_auto.txt"'
+    mpause 250
+    waitln '+KFTP_IND: 0, 2, 0'
+    ; Error handling:
+    if result == 0 then
+        sprintf2 errorMessage "->Error happened. At round: %i . Record to log; Disconnect, then continue to next round." i
+        statusbox errorMessage 'Error'   ;box顯示
+        dispstr errorMessage #10 #13 #10 #13
+        ; disconnect
+        closesbox
+    endif
+    dispstr #10 #13
+
+    ; 7a. Check if new file is DELETED SUCCESSFULLY, by checking its size
+    dispstr '7a. Check if new file is DELETED SUCCESSFULLY, by checking its size' #10 #13
+    sendln 'AT+KFTPLS=0,,"A82_auto.txt"'
+    mpause 250
+    waitln '+KFTP_ERROR: 0: 550'
+    ; Error handling:
+    if result == 0 then
+        sprintf2 errorMessage "->Error happened. At round: %i . Record to log; Disconnect, then continue to next round." i
+        statusbox errorMessage 'Error'   ;box顯示
+        dispstr errorMessage #10 #13 #10 #13
+        ; disconnect
+        closesbox
+    endif
+    dispstr #10 #13
+
+    ; 8. Close FTP connection
+    dispstr '8. Close FTP connection' #10 #13
+    sendln 'AT+KFTPCLOSE=0'
+    mpause 250
+    waitln '+KFTP_IND: 0,0'
+    ; Error handling:
+    if result == 0 then
+        sprintf2 errorMessage "->Error happened. At round: %i . Record to log; Disconnect, then continue to next round." i
+        statusbox errorMessage 'Error'   ;box顯示
+        dispstr errorMessage #10 #13 #10 #13
+        ; disconnect
+        closesbox
+    endif
+    dispstr #10 #13
+
+    ; 9. Delete a configured FTP session
+    dispstr '9. Delete a configured FTP session' #10 #13
+    sendln 'AT+KFTPCFGDEL=0'
+    mpause 250
+    waitln 'OK'
+    ; Error handling:
+    if result == 0 then
+        sprintf2 errorMessage "->Error happened. At round: %i . Record to log; Disconnect, then continue to next round." i
+        statusbox errorMessage 'Error'   ;box顯示
+        dispstr errorMessage #10 #13 #10 #13
+        ; disconnect
+        closesbox
+    endif
+    dispstr #10 #13
+
+    ; Routine Check: check if Reset happened or not 
+    dispstr 'System Check' #10 #13
+    sendln 'AT!GStatus?'
+    mpause 250
+    waitln 'OK'
+    ; Error handling:
+    if result == 0 then
+        sprintf2 errorMessage "->Error happened. At round: %i . Record to log; Disconnect, then continue to next round." i
+        statusbox errorMessage 'Error'   ;box顯示
+        dispstr errorMessage #10 #13 #10 #13
+        ; disconnect
+        closesbox
+    endif
+    dispstr #10 #13
+
+next
+    
+
+
+; stop marco
+messagebox "Test finished. Marco will be closed." "Message"
+dispstr "Test finished. Macro will be closed." #10 #10 #13
+end
+
+
+
+; !!!!! "goto" can NOT use to break loop
+; !!!!! You must first "CONNECT" then script will be run, otherwise that part will be ignored.
+
+; ; #### Error Handling
+; ; 面對它 (跳進來)
+; :Error
+; ; 接受它 (承認並顯示錯誤)
+; sprintf2 errorMessage "Error happened. Record to log; Disconnect, then continue to next round."
+; statusbox errorMessage 'Error'   ;box顯示
+; ; 處理它 (輸出到log)
+; dispstr errorMessage #10 #13
+; ; logwrite "Error happened. Continue to next round." #10 #13
+; i = i + 1
+; disconnect
+; closesbox
+; ; pause 5  ;debug用, 之後可刪
+; ; 放下它
+; goto Resume

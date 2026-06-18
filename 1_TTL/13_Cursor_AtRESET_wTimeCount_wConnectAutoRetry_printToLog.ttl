@@ -1,0 +1,157 @@
+; Initialization
+i = 1
+timeout = 30
+varstart = 2073600000  ; 86400,000*24 (int最大:2147483647=24.85天)  ####for計時
+
+; # DUT_COM_port's setting:
+inputbox "Enter DUT-Modem COM port:" "Port Setup"
+DUT_COMport = inputstr
+sprintf2 Conn_DUT_COMport "/C=%s" DUT_COMport
+
+; # Test_round's setting:
+inputbox "Enter total TEST ROUNDS:" "Round Setup"
+testRnd = inputstr
+str2int int_testRnd testRnd
+
+; # Oput_LOG's setting (Updated w/ Timestamp):
+; a. get Current time & Format it
+gettime timestr "%Y%m%d_%H%M%S"
+; messagebox timestr "123"  ; printout (for debugging)
+; b. LogFileName suffix w/ timestamp
+sprintf2 LogFileName "AT^Reset_autoReCon_wBootTime_%s.log" timestr
+; messagebox LogFileName "123"  ; printout (for debugging)
+; c. start logging:
+logautoclosemode 1
+logopen LogFileName 0 1 0 1  ; 5th參數(最後一位數)=1: 則每行前會有時戳,如不需則改填0
+
+
+; ---Test Action (Main Loop) begins---:
+for i 1 int_testRnd+1  ;多+1回合, 是因為第一回合被刻意skipped, 總體會少一回合 
+
+	; 1.等待反覆連線
+	while 1
+		; 連線:
+		connect Conn_DUT_COMport
+		; sprintf2 COMport "/C=%s" param2  ;param2值是多少?
+        ; !!result用過會不見!! 小心!!!! (下四行code試跑即知)
+        ; sprintf2 linkStatus1 'Link status= %d' result
+        ; dispstr linkStatus1#10#13
+        ; sprintf2 linkStatus2 'Link status= %d' result
+        ; dispstr linkStatus2#10#13
+
+        ; 反覆確認連線狀態(也可用testlink看result):
+        ; 因result用過會不見，先把result存進變數linkStatusInt
+        linkStatusInt = result
+		if linkStatusInt == 2 then
+			; varstart = 2073600000  一開頭初始化(寫在迴圈外)
+            ; sprintf2 startTime "Start time:%d msec" varstart
+            ; dispstr startTime#10#13
+            ; pause 3
+
+			;####Calculate spent time####: 上輪AT!reset的結束點, 計時停止點
+			uptime varend    ; <uptime> windows sys啟動時間  ->  存進varend
+			; sprintf2 endTime "End time:%d msec" varend
+			; dispstr endTime#10#13
+
+
+			; Skip for the very 1st round intialization
+			if i > 1 then
+				tspent = varend - varstart
+				; tspent = (varend - varstart) / 1000
+				; sprintf2 resetTime "====--> AT^RESET time: %d ms <--====" tspent    ; original printf
+				roundNum = i-1  ; 第i輪連線成功時, 算出的是第i-1輪reset的耗時
+				sprintf2 resetTime "====--> Round: %d, AT^RESET time: %d ms <--====" roundNum tspent
+				dispstr resetTime#10#13#32#10#13
+			endif
+
+
+			;####測試開始點
+
+			; [插花條件] 若最後一回合: 則計算完時間就跳出, 不再執行下方指令(為了跳過最後1回)
+			if i > int_testRnd then
+				goto ExitAll  ;為了一次跳出兩層迴圈
+			endif
+
+
+			sprintf2 linkStatus "==== LinkStatus:%d, COM successfully connected. Start testing ====" linkStatusInt
+			dispstr linkStatus#13  ;13CR,10LF
+			
+			mpause 10
+			sprintf2 round 'Testing AT^Reset with normal boot. Round: %d' i  ;輸出"內容"
+			dispstr round#10#13  ;輸出到terminal
+			statusbox round 'Testing'  ;輸出到box
+			pause 1
+			break
+
+		elseif linkStatusInt == 1 then  ;失敗就不斷重連
+			
+			sprintf2 linkStatus "LinkStatus:%d. COM NOT connected yet. Re-try every 1 sec." linkStatusInt
+			statusbox linkStatus#10#13
+			pause 1  ;n sec後再試
+
+		endif
+
+	endwhile
+
+
+	; ####下發指令: ATi + AT!reset	
+	; 1. ATi
+	; pause 10  ;下AT!reset後:port斷需約9sec; 開機後:可連(port通)需約25sec, 可收(收ATcmd)需約35sec
+    sendln 'ATi'
+	mpause 50
+	waitln 'OK'
+	pause 1
+    ; ATI's Error handling:
+    if result == 0 then
+        goto Error
+    endif
+
+    ; 2. AT!reset
+    sendln 'AT^reset'  ; !!!!此處是Reset開始起點!!!!
+	mpause 50
+	waitln 'OK'
+    ; AT!reset Error handling:
+    if result == 0 then
+        goto Error
+    endif
+
+	; #### for AT!Reset的計時 ####: AT!Reset計時開始
+	uptime varstart  ; <uptime> windows sys啟動時間  ->  存進varstart
+	; sprintf2 startTime "Start time:%d msec" varstart
+	; dispstr startTime#10#13
+
+
+    ;Error handling結束後的進入點
+    :Resume
+
+    ;確保AT!reset斷開用.AT!reset下發後不會立即斷開(port斷需約9.5sec), 放do loop確保斷開後才往下執行
+    do
+        ; pause 10    ;IE12斷開只要1.X秒
+        testlink
+    loop while result == 2
+
+	; i = i + 1  ;i是test round數,回合完成才+1
+
+next
+
+
+; Macro
+:ExitAll
+messagebox "Test finished. Marco will be closed." "Message"
+end
+
+
+
+;####Error Handling 面對它→接受它→處理它→放下它
+
+;面對它 (跳進來了)
+:Error
+;接受它 (承認錯誤發生了)
+sprintf2 errorMessage "Error happened. Record to log, then continue to next round."
+statusbox errorMessage "Error message";輸出到box
+;處理它 (輸出到log)
+logwrite "Error happened. Continue to next round."#10#13
+disconnect
+pause 5  ;debug用, 之後可刪
+;放下它
+goto Resume

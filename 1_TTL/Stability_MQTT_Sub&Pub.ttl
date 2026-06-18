@@ -1,0 +1,87 @@
+; Log Filename
+logstr = "\log\MQTT_sub_pub-%Y%m%d-%H%M%S"
+
+;###create log
+foldercreate 'log'
+gettime logstr logstr
+getdir curdir
+sprintf '%s\%s' curdir logstr
+filename = inputstr
+sprintf '%s.log' filename
+filename = inputstr
+logopen filename 0 1 1
+
+i=1
+for i 1 5000
+;while 1
+
+  ;statusbox i "count"
+  ;connect '/C=60'
+  ;timeout = 5
+  
+  msg='Test count: '
+  msg2=''
+  int2str msg2 i
+  strconcat msg msg2
+
+  dispstr '*****************************************************'#10#13
+  dispstr '*****************  ' msg '  *******************'#10#13
+  dispstr '*****************************************************'#10#13
+  getdate datetime2 '%Y/%m/%d %H:%M:%S'#10#13
+  dispstr datetime2
+  
+  ;Show SW info
+  sendln "ati"
+  waitln "OK" "ERROR"
+  ;timeout = 2
+  pause 2
+
+  ;Configure MQTT client
+  sendln 'AT+KMQTTCFG=0,broker.hivemq.com,1883,4,"QCX216",120,1,1,"home/LWTMessage","qcx216 offline",1,0,,,1,"mqtts"'
+  waitln "OK" "ERROR"
+  ;timeout = 3
+  pause 3
+  
+  ;Connect MQTT server
+  sendln "AT+KMQTTCNX=0"
+  waitln "OK" "ERROR"
+  ;timeout = 3
+  pause 4
+  
+  ;MQTT subscribe topic
+  sendln 'AT+KMQTTSUB=0,"home/yard/DHT11",0'
+  waitln "OK" "ERROR"
+  ;timeout = 5
+  pause 4
+  
+  ;MQTT publish topic
+  sendln 'at+KMQTTPUB=0,"home/yard/DHT11",0,0,"temp=32"'
+  waitln "OK" "ERROR"
+  ;timeout = 5
+  pause 4
+
+  ;MQTT unsubscribe topic
+  sendln 'AT+KMQTTUNSUB=0,"home/yard/DHT11"'
+  waitln "OK" "ERROR"
+  ;timeout = 5
+  pause 4
+  
+  ;Disconnect MQTT server
+  sendln "AT+KMQTTCLOSE=0"
+  waitln "OK" "ERROR"
+  ;timeout = 5
+  pause 4
+  
+  ;Delete session created by AT+KMQTTCFG
+  sendln "AT+KMQTTDEL=0"
+  waitln "OK" "ERROR"
+
+  ;i=i+1
+  pause 3
+;endwhile  
+next
+
+
+closesbox
+
+messagebox "MQTT_sub&pub test finished!"  "....."

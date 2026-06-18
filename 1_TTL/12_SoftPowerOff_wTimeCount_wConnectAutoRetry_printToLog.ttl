@@ -1,0 +1,122 @@
+; Initialization
+i = 1
+timeout = 50
+varstart = 2073600000  ; 86400,000*24 (int最大:2147483647=24.85天)  ####for計時
+
+; LOG's name setting:
+logautoclosemode 1    ; if Macro關閉, log就關閉
+gettime logTimestr "log_%Y%m%d_%H%M%S.log"    ; log後綴, "時間戳記"
+logNamestr = "IE12_PowerOffSoft_"    ; !!!!請輸入"此腳本用途名稱"!!!!
+sprintf2 logFileName '%s%s' logNamestr logTimestr
+dispstr logFileName #10 #13    ; ^^^^ for debug
+logopen logFileName 0 1 0 1
+;logopen <檔名> <換行符號> <接續編寫> <純文字> <時間> <隱藏記錄框>
+
+; DUT_COM_port setting:
+inputbox "Please enter your DUT-Modem COM port:" "DUT-Modem COM port"
+DUT_COMport = inputstr
+sprintf2 Conn_DUT_COMport "/C=%s" DUT_COMport
+
+; Test_round setting:
+inputbox "How many TEST ROUNDS would you like to repeat:" "Test Round"
+testRnd = inputstr
+str2int int_testRnd testRnd
+
+
+
+
+; # A. 連線DUT
+connect Conn_DUT_COMport
+
+; # B. 動作迴圈: 'ATcmd + 反覆連線 + 成功斷線後請重開機'
+for i 1 int_testRnd
+
+    ; 0. Title indication
+    sprintf2 round 'Testing "AT!powerdown". Round: %d' i
+    dispstr round #10 #13    ; 輸出到terminal
+    statusbox round 'Testing'    ; 輸出到box
+
+    ; 1. CMD to be tested: 'AT!PowerDown'
+    sendln 'AT!PowerDown'
+    ; #### 計時:"開始" ####
+    uptime varstart
+    mpause 10
+    waitln 'OK'
+    ; Error handling:
+    if result == 0 then
+        sprintf2 errorMessage "->Error happened. Record to log; Then continue to next round."
+        statusbox errorMessage 'Error'   ; box顯示
+        dispstr errorMessage #10 #13 #10 #13    ; terminal顯示(為了記入log)
+        ; disconnect
+        closesbox
+        goto loopEnd
+    endif
+    dispstr #10 #13
+    
+	; 2. Repeat"確認連線狀態" (直接用"Connect"action來確認連線狀態)
+	while 1
+		; a. 連接action:
+		connect Conn_DUT_COMport
+        
+        ; b. 確認連線狀態 (也可用testlink看result):
+        linkStatusInt = result    ; 因result用過可能會不見，先把result存進變數linkStatusInt
+		; b1. 連線:成功斷開
+        if linkStatusInt == 1 then
+			; varstart = 2073600000  一開頭初始化(寫在迴圈外)
+            ; sprintf2 startTime "Start time:%d msec" varstart
+            ; dispstr startTime#10#13
+            ; pause 3
+
+            uptime varend    ; #### 計時:結束 ####
+            ; 提示: 連線已斷開
+            sprintf2 linkStatus1 'LinkStatus=%d. COM DISCONNECTed successfully.' linkStatusInt
+            statusbox linkStatus1 'Connection Status'
+            dispstr linkStatus1 #10 #13  ;13CR,10LF
+            
+            ; 提示: 總共耗時 (這邊跑不到, 因為斷線狀態下Tera都無法執行)
+            tspent = varend - varstart    
+            sprintf2 powerOffTime '"AT!PowerDown" spent: %dmsec' tspent
+            statusbox powerOffTime 'Time spent'
+            dispstr powerOffTime #10 #13
+            break    ; 成功斷開, 故跳出反覆確認迴圈, 並往下
+        ; b2. 連線:尚未斷開
+        elseif linkStatusInt == 2 then
+            ; 提示: 連線尚未斷開
+            sprintf2 linkStatus2 "LinkStatus=%d. COM still CONNECTed. Re-try every 10msec." linkStatusInt
+            statusbox linkStatus2 'Connection Status'
+            dispstr linkStatus2 #10 #13  ;13CR,10LF
+			mpause 10  ; 50msec後再試
+        endif
+
+	endwhile    ; 反覆確認連線狀態的while迴圈結束
+
+    dispstr 'DUT is Powered Off'
+
+
+
+    :loopEnd
+
+next
+
+
+
+; stop marco
+messagebox "Test finished. Marco will be closed." "Message"
+dispstr "Test finished. Macro will be closed." #10 #10 #13
+end
+
+
+
+; ;####Error Handling 面對它→接受它→處理它→放下它
+
+; ;面對它 (跳進來了)
+; :Error
+; ;接受它 (承認錯誤發生了)
+; sprintf2 errorMessage "Error happened. Record to log, then continue to next round."
+; statusbox errorMessage "Error message";輸出到box
+; ;處理它 (輸出到log)
+; logwrite "Error happened. Continue to next round."#10#13
+; disconnect
+; pause 5  ;debug用, 之後可刪
+; ;放下它
+; goto Resume

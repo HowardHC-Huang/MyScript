@@ -1,0 +1,119 @@
+tz="GMT"
+gettime s "Time: %Y/%m/%d %H:%M:%S" tz
+dispstr s#13#10#10
+
+sendln 'AT!GNSSCONFIG?'
+pause 2
+wait 'OK' 'ERROR'
+
+sendln 'AT!GPSAUTOSTART?'
+pause 2
+wait 'OK' 'ERROR'
+
+sendln 'AT!GPSCLRASSIST=0,0,0,0,0'
+pause 2
+wait 'OK' 'ERROR'
+
+sendln 'AT!GPSCOLDSTART'
+pause 2
+wait 'OK' 'ERROR'
+
+sendln 'AT!GPSCONF?'
+pause 2
+wait 'OK' 'ERROR'
+
+sendln 'AT!GPSELNA?'
+pause 2
+wait 'OK' 'ERROR'
+
+sendln 'AT!GPSFIX=1,255,49'
+pause 2
+wait 'OK' 'ERROR'
+
+sendln 'AT!GPSLBSAPN?'
+pause 2
+wait 'OK' 'ERROR'
+
+sendln 'AT!GPSLOC?'
+pause 2
+wait 'OK' 'ERROR'
+
+sendln 'AT!GPSMOMETHOD?'
+pause 2
+wait 'OK' 'ERROR'
+
+sendln 'AT!GPSNMEACONFIG?'
+pause 2
+wait 'OK' 'ERROR'
+
+sendln 'AT!GPSNMEASENTENCE?'
+pause 2
+wait 'OK' 'ERROR'
+
+sendln 'AT!GPSPORTID?'
+pause 2
+wait 'OK' 'ERROR'
+
+sendln 'AT!GPSPOSMODE?'
+pause 2
+wait 'OK' 'ERROR'
+
+sendln 'AT!GPSSATINFO?'
+pause 2
+wait 'OK' 'ERROR'
+
+sendln 'AT!GPSSTATUS?'
+pause 2
+wait 'OK' 'ERROR'
+
+sendln 'AT!GPSSUPLURL?'
+pause 2
+wait 'OK' 'ERROR'
+
+sendln 'AT!GPSSUPLVER?'
+pause 2
+wait 'OK' 'ERROR'
+
+sendln 'AT!GPSEND=0,255'
+pause 2
+wait 'OK' 'ERROR'
+
+sendln 'AT!GPSTRACK=1,255,49,5,15'
+pause 2
+wait 'OK' 'ERROR'
+
+sendln 'AT!GPSXTRAAPN?'
+pause 2
+wait 'OK' 'ERROR'
+
+sendln 'AT!GPSXTRADATAENABLE?'
+pause 2
+wait 'OK' 'ERROR'
+
+sendln 'AT!GPSXTRADATAURL?'
+pause 2
+wait 'OK' 'ERROR'
+
+sendln 'AT!GPSXTRAINITDNLD'
+pause 2
+wait 'OK' 'ERROR'
+
+sendln 'AT!GPSXTRASTATUS?'
+pause 2
+wait 'OK' 'ERROR'
+
+sendln 'AT!GPSXTRATIMEENABLE?'
+pause 2
+wait 'OK' 'ERROR'
+
+sendln 'AT!GPSXTRATIMEURL?'
+pause 2
+wait 'OK' 'ERROR'
+
+sendln 'AT+WANT?'
+pause 2
+wait 'OK' 'ERROR'
+
+tz="GMT"
+gettime s "test complete: %Y/%m/%d %H:%M:%S" tz
+dispstr s#13#10#10

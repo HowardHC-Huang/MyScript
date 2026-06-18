@@ -1,0 +1,116 @@
+; Initialization
+i = 1
+timeout = 5
+
+; LOG's file name setting:
+logautoclosemode 1    ; if Macro關閉, log就關閉
+gettime logTimestr "log_%Y%m%d_%H%M%S.log"    ; log後綴, "時間戳記"
+logNamestr = "IE12_ContinuousAT_"    ; !!!!請輸入: "此腳本用途名稱"
+sprintf2 logFileName '%s%s' logNamestr logTimestr
+dispstr logFileName #10 #13    ; ^^^^ for debug
+logopen logFileName 0 1 0 1
+;logopen <檔名> <換行符號> <接續編寫> <純文字> <時間> <隱藏記錄框>
+
+; DUT_COM_port setting:
+inputbox "Please enter your DUT-Modem COM port:" "DUT-Modem COM port"
+DUT_COMport = inputstr
+sprintf2 Conn_DUT_COMport "/C=%s" DUT_COMport
+
+; Test_round setting:
+inputbox "How many TEST ROUNDS would you like to repeat:" "Test Round"
+testRnd = inputstr
+str2int int_testRnd testRnd
+
+
+
+; # 0. 連線DUT
+connect Conn_DUT_COMport
+
+; "指令輸入"迴圈
+for i 1 int_testRnd
+
+    connect Conn_DUT_COMport    ; !!!!! You must first "CONNECT" then script will be run,
+    sprintf2 testRoundstr "== Test Round %i : ==" i
+    dispstr testRoundstr #10 #13
+
+
+    ; # 0a. 上步的果, DUT連線狀態檢查
+    connect Conn_DUT_COMport    ;!!!!
+    linkStatusInt = result    ; (先將連線結果,存起來)
+    if linkStatusInt == 2 then    ; 連線狀態=2: BOTH "Connection" OK & "Link" OK
+    ; 提示連線狀態
+    sprintf2 linkStatusPrompt2 "LinkStatus:%d: COM connected successfully. Start testing now..." linkStatusInt
+    statusbox linkStatusPrompt2 'Connection Status'
+    dispstr linkStatusPrompt2 #10 #13  ;13CR,10LF
+    
+    elseif linkStatusInt == 1 then    ; 連線狀態=1: "Connection (to HOST)" XX  but  "Link (to Tera)" OK)
+        sprintf2 linkStatusPrompt1 "LinkStatus:%d. COM NOT connected." linkStatusInt
+        statusbox linkStatusPrompt1 'Connection Status'
+        dispstr linkStatusPrompt1 #10 #10 #13
+
+    endif
+
+
+
+    ; !!!! 開始輸入指令 !!!! 
+    ; 1. Show Packet_switch IP "AT+CGPADDR"
+    ; pause 10  ;下AT!reset後:port斷需約9sec; 開機後:可連(port通)需約25sec, 可收(收ATcmd)需約35sec
+    dispstr "1." #10 #13
+    sendln 'AT+CGPADDR'
+    mpause 1000
+    waitln 'OK'
+    ; Error handling:
+    if result == 0 then
+        sprintf2 errorMessage "->Error happened. Record to log; Disconnect, then continue to next round."
+        statusbox errorMessage 'Error'   ;box顯示
+        dispstr errorMessage #10 #13 #10 #13
+        ; disconnect
+        closesbox
+    endif
+    dispstr #10 #13
+    
+    ; 2. Show AT!GStatus "AT!Gtatus?"
+    dispstr "2." #10 #13
+    sendln 'AT!GStatus?'
+    mpause 1000
+    waitln 'OK'
+    ; Error handling:
+    if result == 0 then
+        sprintf2 errorMessage "->Error happened. Record to log; Disconnect, then continue to next round."
+        statusbox errorMessage 'Error'   ;box顯示
+        dispstr errorMessage #10 #13 #10 #13
+        ; disconnect
+        closesbox
+    endif
+    dispstr #10 #13
+
+    
+next
+    
+
+
+; stop marco
+messagebox "Test finished. Marco will be closed." "Message"
+dispstr "Test finished. Macro will be closed." #10 #10 #13
+end
+
+
+
+; !!!!! "goto" can NOT use to break loop
+; !!!!! You must first "CONNECT" then script will be run, otherwise that part will be ignored.
+
+; ; #### Error Handling
+; ; 面對它 (跳進來)
+; :Error
+; ; 接受它 (承認並顯示錯誤)
+; sprintf2 errorMessage "Error happened. Record to log; Disconnect, then continue to next round."
+; statusbox errorMessage 'Error'   ;box顯示
+; ; 處理它 (輸出到log)
+; dispstr errorMessage #10 #13
+; ; logwrite "Error happened. Continue to next round." #10 #13
+; i = i + 1
+; disconnect
+; closesbox
+; ; pause 5  ;debug用, 之後可刪
+; ; 放下它
+; goto Resume

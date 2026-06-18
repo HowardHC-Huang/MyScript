@@ -1,0 +1,211 @@
+getdir MyDir
+getdate TestDate "%m%d"
+
+
+
+; ==For Basic Test setting "INPUT": e.g. Modem port==
+; a. User Input: MODEM port NUM
+inputbox "Please enter your DUT Modem port:" "Modem port"
+DUT_ModemPort = inputstr
+sprintf2 Connect_DUT_ModemPort "/C=%s" DUT_ModemPort
+; b. Connect to: MODEM port
+connect Connect_DUT_ModemPort
+
+; ==For Special Test setting "INPUT": e.g. GPSEnable=n ==
+inputbox "Please enter GPSEnable=? (0~6) for this round" "GPSEnable=?"
+GPSEnableMode = inputstr
+sprintf2 GPSEnable_cmd 'AT!custom="GPSENABLE",%s' GPSEnableMode
+; dispstr GPSEnableCmd#10#13 ;for debug
+; pause 2
+sprintf2 GPSEnable_fname 'GPSEnable%s' GPSEnableMode
+
+inputbox "Please enter W_Disable#2=? (ON/OFF) for this round" "W_Disable#2=?"
+W_Disable2_status = inputstr
+sprintf2 W_Disable2_cmd '==== Toogle W_Disable#2 to %s ====' W_Disable2_status
+sprintf2 W_Disable2_fname 'WDisable2%s' W_Disable2_status
+
+
+
+; ==For Log output==
+sprintf2 filename '%s\GPSTruthTable_%s_%s_%s.log' MyDir W_Disable2_fname GPSEnable_fname TestDate
+logopen filename 0 1
+
+
+
+; ==Start Testing==
+; - Show Test Start time -
+gettime StartTimeStr "==== Test starts: %Y/%m/%d %H:%M:%S ===="
+dispstr StartTimeStr#10#13
+dispstr #10#13
+pause 2
+; tz="GMT"
+; gettime s "Time: %Y/%m/%d %H:%M:%S" tz
+; dispstr s
+; dispstr #10#13
+
+; - BASIC Test config EXECUTION (in the begining for every general Test Case)-
+sendln 'ATi'
+wait 'OK' 'ERROR'
+dispstr #10#13
+pause 2
+
+sendln 'AT!entercnd="A710"'
+wait 'OK' 'ERROR'
+dispstr #10#13
+pause 2
+
+; sendln 'AT!entercnd?'
+; wait 'OK' 'ERROR'
+; dispstr #10#13
+; pause 2
+
+
+; - SPECIAL Test setting EXECUTION (special for this very Test Case) -
+dispstr W_Disable2_cmd#10#13
+dispstr #10#13
+
+sendln GPSEnable_cmd
+wait 'OK' 'ERROR'
+dispstr #10#13
+pause 2
+
+; - !!!! [Optional] Perform a power cycle !!!!
+sendln 'AT!reset'
+pause 35  ;"DUT Reboot" takes about 35sec
+connect Connect_DUT_ModemPort
+
+sendln 'AT!entercnd="A710"'
+wait 'OK' 'ERROR'
+dispstr #10#13
+pause 2
+
+sendln 'AT!custom?'
+wait 'OK' 'ERROR'
+dispstr #10#13
+
+
+; - What you want to Test this Round -
+sendln 'AT!GNSSCONFIG?'
+wait 'OK' 'ERROR'
+pause 2
+
+sendln 'AT!GPSAUTOSTART?'
+wait 'OK' 'ERROR'
+pause 2
+
+sendln 'AT!GPSCLRASSIST=0,0,0,0,0'
+wait 'OK' 'ERROR'
+pause 2
+
+sendln 'AT!GPSCOLDSTART'
+wait 'OK' 'ERROR'
+pause 2
+
+sendln 'AT!GPSCONF?'
+wait 'OK' 'ERROR'
+pause 2
+
+sendln 'AT!GPSELNA?'
+wait 'OK' 'ERROR'
+pause 2
+
+sendln 'AT!GPSFIX=1,255,49'
+wait 'OK' 'ERROR'
+pause 2
+
+sendln 'AT!GPSLBSAPN?'
+wait 'OK' 'ERROR'
+pause 2
+
+sendln 'AT!GPSLOC?'
+wait 'OK' 'ERROR'
+pause 2
+
+sendln 'AT!GPSMOMETHOD?'
+wait 'OK' 'ERROR'
+pause 2
+
+sendln 'AT!GPSNMEACONFIG?'
+wait 'OK' 'ERROR'
+pause 2
+
+sendln 'AT!GPSNMEASENTENCE?'
+wait 'OK' 'ERROR'
+pause 2
+
+sendln 'AT!GPSPORTID?'
+wait 'OK' 'ERROR'
+pause 2
+
+sendln 'AT!GPSPOSMODE?'
+wait 'OK' 'ERROR'
+pause 2
+
+sendln 'AT!GPSSATINFO?'
+wait 'OK' 'ERROR'
+pause 2
+
+sendln 'AT!GPSSTATUS?'
+wait 'OK' 'ERROR'
+pause 2
+
+sendln 'AT!GPSSUPLURL?'
+wait 'OK' 'ERROR'
+pause 2
+
+sendln 'AT!GPSSUPLVER?'
+wait 'OK' 'ERROR'
+pause 2
+
+sendln 'AT!GPSEND=0,255'
+wait 'OK' 'ERROR'
+pause 2
+
+sendln 'AT!GPSTRACK=1,255,49,5,15'
+wait 'OK' 'ERROR'
+pause 2
+
+sendln 'AT!GPSXTRAAPN?'
+wait 'OK' 'ERROR'
+pause 2
+
+sendln 'AT!GPSXTRADATAENABLE?'
+wait 'OK' 'ERROR'
+pause 2
+
+sendln 'AT!GPSXTRADATAURL?'
+wait 'OK' 'ERROR'
+pause 2
+
+sendln 'AT!GPSXTRAINITDNLD'
+wait 'OK' 'ERROR'
+pause 2
+
+sendln 'AT!GPSXTRASTATUS?'
+wait 'OK' 'ERROR'
+pause 2
+
+sendln 'AT!GPSXTRATIMEENABLE?'
+wait 'OK' 'ERROR'
+pause 2
+
+sendln 'AT!GPSXTRATIMEURL?'
+wait 'OK' 'ERROR'
+pause 2
+
+sendln 'AT+WANT?'
+wait 'OK' 'ERROR'
+pause 2
+
+gettime EndTimeStr "==== Test complete: %Y/%m/%d %H:%M:%S ===="
+dispstr EndTimeStr#10#13
+
+
+; For Log closing
+logclose
+
+; For Terminal closing
+; closett
+
+; For Marco closing
+end
