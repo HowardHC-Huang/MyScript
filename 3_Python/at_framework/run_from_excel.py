@@ -236,7 +236,11 @@ def main() -> int:
         logger.write(f"已連線: {ser.port} @ {ser.baudrate} bps")
         time.sleep(0.5)
 
-        for test_id in test_ids:
+        for i, test_id in enumerate(test_ids):
+            if i > 0:
+                logger.write("測試 ID 之間等待 2 秒...")
+                time.sleep(2)
+
             at_steps = steps_by_test[test_id]
             logger.write(f"\n########## test_id: {test_id} ({len(at_steps)} steps) ##########")
 

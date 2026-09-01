@@ -5,7 +5,7 @@ timeout = 5
 ;    0b. LOG's file name setting:
 logautoclosemode 1    ; if Macro關閉, log就關閉
 gettime logTimestr "log_%Y%m%d_%H%M%S.log"    ; log後綴, "時間戳記"
-logNamestr = "IE13_CFUN1and0_"    ; !!!!請輸入: "此腳本用途名稱"
+logNamestr = "Stress_MyScript_TTL_13_ContnuCFUN1_0_nTimeCount"    ; !!!!請輸入: "此腳本用途名稱"
 sprintf2 logFileName '%s%s' logNamestr logTimestr
 dispstr logFileName #10 #13    ; ^^^^ display for debug
 

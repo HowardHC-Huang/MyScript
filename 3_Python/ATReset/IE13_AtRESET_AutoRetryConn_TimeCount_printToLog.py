@@ -15,7 +15,7 @@ def run_at_reset_test():
 
     # 2. Setup Logging with Timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_filename = f"AT_Reset_Python_Test_{timestamp}.log"
+    log_filename = f"Stress_MyScript_Python_AT_Reset_wTimeCount_test_{timestamp}.log"
     
     def log_and_print(message):
         print(message)
@@ -68,7 +68,7 @@ def run_at_reset_test():
 
                 # Serial port closes automatically after 'with' block
                 log_and_print("Waiting for device to disconnect...")
-                time.sleep(2) # 給予設備斷開反應時間
+                time.sleep(1.8) # 給予設備斷開反應時間
 
                 # --- B. Reconnect Loop (Wait for Boot-up) ---
                 log_and_print("Device disconnected. Re-trying connection...")

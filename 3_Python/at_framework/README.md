@@ -130,7 +130,7 @@ python create_template.py
 | `test_id` | 是 | 測試案例 ID | `TC_Smoke_AT` |
 | `step` | 是 | 步驟順序（整數） | `1` |
 | `enabled` | 是 | `V` 執行 / `N` 略過 | `V` |
-| `cmd` | 是 | AT 指令（**不要**加 `\r\n`） | `AT` |
+| `cmd` | 是 | AT 指令（**不要**加 `\r\n`）。簡訊本文結尾寫 `{CTRLZ}`，見 4.2.1 | `AT` |
 | `expect_type` | 是 | 預期比對方式（見下節） | `contains` |
 | `expect_value` | 視類型 | 預期內容或 custom 名稱 | `OK` |
 | `expect_label` | 否 | 報告上顯示的預期說明 | `TTFF (sec) < 5` |
@@ -141,6 +141,25 @@ python create_template.py
 | `run_on_failure` | 否 | 前步失敗時是否仍執行此步：`V`/`N` | `N` |
 | `check_ttff` | 否 | `V` 時額外寫入 TTFF 判定 log | `V` |
 | `note` | 否 | 備註 | `基本握手` |
+
+### 4.2.1 簡訊輸入（`>` prompt 與 `{CTRLZ}`）
+
+`AT+CMGW` / `AT+CMGS` 這類指令是**兩階段**：先送指令等到 `>`，再送本文並以 Ctrl+Z 結束。
+
+Excel `cmd` 寫 `{CTRLZ}` 時，框架會改送 Ctrl+Z（`0x1A`），**且不再自動加 `\r\n`**。標記請全大寫、含大括號，例如 `Test SMS{CTRLZ}`。
+
+**完整寫入草稿範例（`AT+CMGW`）：**
+
+| test_id | step | enabled | cmd | expect_type | expect_value | timeout | idle_timeout | note |
+|---------|------|---------|-----|-------------|--------------|---------|--------------|------|
+| TC_SMS_CMGW | 1 | V | `AT+CMGF=1` | contains | `OK` | 5 | （空白） | 切文字模式 |
+| TC_SMS_CMGW | 2 | V | `AT+CMGW="0939812986",129,"STO UNSENT"` | contains | `>` | 5 | `none` | 出現輸入提示符 |
+| TC_SMS_CMGW | 3 | V | `Test SMS{CTRLZ}` | contains | `+CMGW:` | 10 | `none` | 本文 + Ctrl+Z；成功會回 `+CMGW: <index>` 再 `OK` |
+
+- step 2 / 3 的 `idle_timeout` 建議填 `none`，避免提示符或寫入結果還沒到就被當成結束。
+- step 3 的 `expect_value` 用 `+CMGW:` 即可（index 每次可能不同）；若要連 `OK` 一起確認，可改 `regex`：`\+CMGW:\s*\d+[\s\S]*OK`。
+- `{CTRLZ}` 只能寫在**本文那一步**，不要加在 `AT+CMGW=...` 那一列。
+- 若 step 3 失敗，模組可能仍停在 `>`；請勿接著跑其他測項，改送 ESC 或重開模組。
 
 ### 4.3 預期比對方式（expect_type）
 
@@ -463,6 +482,8 @@ python run_from_excel.py -p COM14 -t TC_Smoke_AT -o D:\Logs\test.log -d D:\Logs\
 |---------|------|---------|-----|-------------|--------------|---------|
 | TC_MyTest | 1 | V | AT | contains | OK | 2 |
 | TC_MyTest | 2 | V | ATI | contains | OK | 2 |
+
+簡訊寫入請見 **4.2.1**（`>` 與 `{CTRLZ}`）。
 
 ---
 

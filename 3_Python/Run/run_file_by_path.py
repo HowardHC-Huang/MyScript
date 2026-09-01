@@ -29,7 +29,7 @@ def _launch_detached(command: List[str]) -> subprocess.Popen:
 
 def _create_log_path(target: Path) -> Path:
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_name = f"run_{target.stem}_{ts}.log"
+    log_name = f"Stress_MyScript_Python_RunFile_{target.stem}_{ts}.log"
     return Path(__file__).resolve().parent / log_name
 
 

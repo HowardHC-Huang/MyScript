@@ -251,7 +251,7 @@ def _build_reference_sheet(wb: Workbook) -> None:
         ["test_id", "測試案例 ID，同 ID 多列組成一個序列", "TC_GNSS_XTRA_ColdStart"],
         ["step", "步驟順序（整數）", "1"],
         ["enabled", "V=執行 / N=略過", "V"],
-        ["cmd", "AT 指令（不含 \\r\\n）", "AT"],
+        ["cmd", "AT 指令（不含 \\r\\n）；簡訊本文結尾寫 {CTRLZ}", "Test SMS{CTRLZ}"],
         ["expect_type", "contains | regex | custom", "contains"],
         ["expect_value", "預期內容或 custom 名稱", "OK / current_year_month"],
         ["expect_label", "報告顯示用（可空）", "TTFF (sec) < 5"],

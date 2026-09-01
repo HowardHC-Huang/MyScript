@@ -168,6 +168,20 @@ def _response_matches(response: str, expect: Expect) -> bool:
     return expect(response)
 
 
+CTRLZ_TOKEN = "{CTRLZ}"
+
+
+def build_at_tx_bytes(command: str) -> bytes:
+    """把 Excel cmd 編成要寫入 serial 的位元組。
+
+    一般 AT 指令結尾加 \\r\\n。
+    cmd 含 {CTRLZ} 時改送 Ctrl+Z（0x1A），且不再加 \\r\\n（簡訊本文結束符）。
+    """
+    if CTRLZ_TOKEN in command:
+        return command.replace(CTRLZ_TOKEN, "\x1a").encode("utf-8")
+    return f"{command}\r\n".encode("utf-8")
+
+
 def send_at_command(
     ser: serial.Serial,
     command: str,
@@ -176,7 +190,7 @@ def send_at_command(
     idle_timeout: Optional[float] = 0.3,
 ) -> Tuple[bool, str]:
     ser.reset_input_buffer()
-    ser.write(f"{command}\r\n".encode("utf-8"))
+    ser.write(build_at_tx_bytes(command))
 
     deadline = time.perf_counter() + timeout
     last_data = time.perf_counter()
