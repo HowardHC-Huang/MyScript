@@ -2,6 +2,8 @@
 
 import csv
 import re
+import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -182,6 +184,44 @@ def build_at_tx_bytes(command: str) -> bytes:
     return f"{command}\r\n".encode("utf-8")
 
 
+def send_shell_command(
+    command: str,
+    expect: Expect,
+    timeout: float,
+) -> Tuple[bool, str]:
+    """在本機 shell 執行指令（Ubuntu 用 bash；Windows 用 COMSPEC）。"""
+    kwargs = {
+        "args": command,
+        "shell": True,
+        "capture_output": True,
+        "text": True,
+        "timeout": timeout,
+        "encoding": "utf-8",
+        "errors": "replace",
+    }
+    if sys.platform != "win32":
+        kwargs["executable"] = "/bin/bash"
+
+    try:
+        completed = subprocess.run(**kwargs)
+    except subprocess.TimeoutExpired as exc:
+        chunks = []
+        for part in (exc.stdout, exc.stderr):
+            if not part:
+                continue
+            chunks.append(part if isinstance(part, str) else part.decode("utf-8", errors="replace"))
+        output = "".join(chunks).strip()
+        response = f"{output}\n[TIMEOUT]".strip() if output else "[TIMEOUT]"
+        return False, response
+    except OSError as exc:
+        return False, f"[錯誤] {exc}"
+
+    response = (completed.stdout or "") + (completed.stderr or "")
+    if completed.returncode != 0:
+        response = f"{response.rstrip()}\n[exit={completed.returncode}]"
+    return _response_matches(response, expect), response
+
+
 def send_at_command(
     ser: serial.Serial,
     command: str,
@@ -219,7 +259,7 @@ def send_at_command(
 
 
 def run_at_sequence(
-    ser: serial.Serial,
+    ser: Optional[serial.Serial],
     logger: Logger,
     data_recorder: DataRecorder,
     round_idx: int,
@@ -230,7 +270,7 @@ def run_at_sequence(
     baudrate: Optional[int] = None,
     serial_timeout: Optional[float] = None,
     reconnect_max_wait: float = 60.0,
-) -> Tuple[List[AtStepResult], serial.Serial]:
+) -> Tuple[List[AtStepResult], Optional[serial.Serial]]:
     results: List[AtStepResult] = []
     total = len(at_steps)
 
@@ -239,22 +279,31 @@ def run_at_sequence(
         expect = step["expect"]
         timeout = float(step["timeout"])
         expect_label = _expect_label(step)
+        cmd_type = step.get("cmd_type", "at")
 
         logger.write(f"--- {test_id + ' | ' if test_id else ''}Round {round_idx} | Step {idx}/{total} ---")
-        logger.write(f"TX: {command}")
+        if cmd_type == "shell":
+            logger.write(f"SH: {command}")
+        else:
+            logger.write(f"TX: {command}")
         logger.write(f"Expected: {expect_label}")
 
         idle_timeout = step["idle_timeout"] if "idle_timeout" in step else 0.3
         start = time.perf_counter()
-        passed, response = send_at_command(
-            ser, command, expect, timeout, idle_timeout=idle_timeout
-        )
+        if cmd_type == "shell":
+            passed, response = send_shell_command(command, expect, timeout)
+        elif ser is None:
+            passed, response = False, "[錯誤] AT 步驟但尚未連線 serial"
+        else:
+            passed, response = send_at_command(
+                ser, command, expect, timeout, idle_timeout=idle_timeout
+            )
         elapsed_ms = int((time.perf_counter() - start) * 1000)
 
         response_display = response.replace("\r", "\\r").replace("\n", "\\n")
         logger.write(f"RX ({elapsed_ms} ms): {response_display}")
 
-        if step.get("check_ttff"):
+        if cmd_type != "shell" and step.get("check_ttff"):
             log_ttff_result(logger, response, passed)
 
         result = AtStepResult(

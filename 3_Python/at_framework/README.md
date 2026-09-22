@@ -6,10 +6,10 @@
 
 ## 1. 這是什麼？
 
-`at_framework` 是一套 **AT 指令自動測試工具**：
+`at_framework` 是一套 **AT 指令自動測試工具**，也可穿插執行本機（Ubuntu）shell 指令：
 
 - **測試人員**：在 Excel 裡編輯測項（指令、預期結果、逾時等），不需寫程式。
-- **框架程式**：讀取 Excel → 透過 COM Port 與模組通訊 → 逐步執行並記錄 PASS/FAIL。
+- **框架程式**：讀取 Excel → 透過 COM / `/dev/ttyACM*` 與模組通訊，或在本機 shell 執行指令 → 逐步執行並記錄 PASS/FAIL。
 
 適用情境：LTE / GNSS 等模組的功能測試、冒煙測試（Smoke Test）、多回合壓力測試。
 
@@ -52,9 +52,10 @@ at_framework/
 ```
 Excel 測項檔
     ↓  excel_loader.py 讀取
-步驟清單（cmd、expect、timeout…）
+步驟清單（cmd、cmd_type、expect、timeout…）
     ↓  at_core.py 執行
-COM Port ↔ 模組
+COM / tty  ↔ 模組（cmd_type=at）
+本機 shell（cmd_type=shell）
     ↓
 .log（詳細紀錄）+ .csv（每步驟結果）
 ```
@@ -65,10 +66,10 @@ COM Port ↔ 模組
 
 ### 3.1 需求
 
-- Windows 電腦
+- Windows 或 Ubuntu
 - Python 3.x（建議 3.8 以上）
-- 模組已透過 USB 連接，且裝置管理員中可看到 COM Port（如 `COM14`）
-- Microsoft Excel 或相容試算表軟體（用於編輯測項）
+- 若有 AT 步驟：模組已透過 USB 連接（Windows 見 COM Port；Ubuntu 見 `/dev/ttyACM*` 或 `/dev/ttyUSB*`）
+- Microsoft Excel 或相容試算表軟體（用於編輯測項；讀取只需 Python `openpyxl`）
 
 ### 3.2 安裝套件
 
@@ -105,7 +106,7 @@ python create_template.py
 
 | key | 範例值 | 說明 |
 |-----|--------|------|
-| `port` | `COM14` | Serial port（執行時可用命令列 `-p` 覆寫） |
+| `port` | `COM14` | Serial port（Windows: `COM14`；Ubuntu: `/dev/ttyACM0`。執行時可用命令列 `-p` 覆寫） |
 | `baudrate` | `115200` | 鮑率 |
 | `serial_timeout` | `1.0` | 底層 serial 讀取逾時（秒） |
 | `rounds` | `1` | 測試回合數（**每個** test_id 都會跑這麼多回合） |
@@ -125,22 +126,24 @@ python create_template.py
 - 適用欄位：`enabled`、`reconnect_after`、`run_on_failure`、`check_ttff`
 - 為了相容舊檔，程式目前仍可讀取 `Y`，但**新建或修改時請統一使用 `V`**
 
-| 欄位 | 必填 | 說明 | 範例 |
-|------|------|------|------|
-| `test_id` | 是 | 測試案例 ID | `TC_Smoke_AT` |
-| `step` | 是 | 步驟順序（整數） | `1` |
-| `enabled` | 是 | `V` 執行 / `N` 略過 | `V` |
-| `cmd` | 是 | AT 指令（**不要**加 `\r\n`）。簡訊本文結尾寫 `{CTRLZ}`，見 4.2.1 | `AT` |
-| `expect_type` | 是 | 預期比對方式（見下節） | `contains` |
-| `expect_value` | 視類型 | 預期內容或 custom 名稱 | `OK` |
-| `expect_label` | 否 | 報告上顯示的預期說明 | `TTFF (sec) < 5` |
-| `timeout` | 是 | 此步驟最長等待秒數 | `30` |
-| `idle_timeout` | 否 | 空白=0.3 秒；`none`=等到 timeout 為止 | `none` |
-| `wait_after` | 否 | 本步驟完成後等待秒數 | `5` |
-| `reconnect_after` | 否 | `V`=等待後關閉並重連 COM（指令會觸發模組重啟時使用） | `V` |
-| `run_on_failure` | 否 | 前步失敗時是否仍執行此步：`V`/`N` | `N` |
-| `check_ttff` | 否 | `V` 時額外寫入 TTFF 判定 log | `V` |
-| `note` | 否 | 備註 | `基本握手` |
+| 欄 | 欄位 | 必填 | 說明 | 範例 |
+|----|------|------|------|------|
+| A | `enabled` | 是 | `V` 執行 / `N` 略過 | `V` |
+| B | `GROUP` | 否 | 分類標籤（僅方便篩選／閱讀，執行時不影響） | `GNSS` |
+| C | `test_id` | 是 | 測試案例 ID | `TC_Smoke_AT` |
+| D | `step` | 是 | 步驟順序（整數） | `1` |
+| E | `cmd` | 是 | AT 或 shell 指令。AT **不要**加 `\r\n`；簡訊本文結尾寫 `{CTRLZ}`，見 4.2.1 | `AT` |
+| F | `cmd_type` | 否 | 空白/`at`=經 serial 送 AT；`shell`=在本機執行（Ubuntu 用 bash）。見 4.2.2 | `at` |
+| G | `expect_type` | 是 | 預期比對方式（見下節） | `contains` |
+| H | `expect_value` | 視類型 | 預期內容或 custom 名稱 | `OK` |
+| I | `expect_label` | 否 | 報告上顯示的預期說明 | `TTFF (sec) < 5` |
+| J | `timeout` | 是 | 此步驟最長等待秒數 | `30` |
+| K | `idle_timeout` | 否 | 空白=0.3 秒；`none`=等到 timeout 為止 | `none` |
+| L | `wait_after` | 否 | 本步驟完成後等待秒數 | `5` |
+| M | `reconnect_after` | 否 | `V`=等待後關閉並重連 COM（指令會觸發模組重啟時使用） | `V` |
+| N | `run_on_failure` | 否 | 前步失敗時是否仍執行此步：`V`/`N` | `N` |
+| O | `note` | 否 | 備註 | `基本握手` |
+| P | `check_ttff` | 否 | `V` 時額外寫入 TTFF 判定 log | `V` |
 
 ### 4.2.1 簡訊輸入（`>` prompt 與 `{CTRLZ}`）
 
@@ -160,6 +163,47 @@ Excel `cmd` 寫 `{CTRLZ}` 時，框架會改送 Ctrl+Z（`0x1A`），**且不再
 - step 3 的 `expect_value` 用 `+CMGW:` 即可（index 每次可能不同）；若要連 `OK` 一起確認，可改 `regex`：`\+CMGW:\s*\d+[\s\S]*OK`。
 - `{CTRLZ}` 只能寫在**本文那一步**，不要加在 `AT+CMGW=...` 那一列。
 - 若 step 3 失敗，模組可能仍停在 `>`；請勿接著跑其他測項，改送 ESC 或重開模組。
+
+### 4.2.2 本機 shell 步驟（`cmd_type=shell`）
+
+同一張 Excel、同一個 `test_id` 裡，可以交錯 **AT** 與 **Ubuntu shell**：
+
+| cmd_type | 行為 |
+|----------|------|
+| 空白或 `at` | 經 serial 送給模組（既有行為） |
+| `shell` | 在執行 Python 的那台機器上跑指令（Ubuntu 用 `/bin/bash`） |
+
+判定方式與 AT 相同：看 stdout+stderr 是否符合 `expect_type` / `expect_value`。`idle_timeout` 對 shell 無效。逾時會 FAIL。
+
+**注意：**
+
+- Python 必須在 Ubuntu 上跑，shell 才是 Ubuntu 指令。從 Windows 執行會走 Windows 的 cmd。
+- 舊 Excel 沒有 `cmd_type` 欄也沒關係，一律當 AT。
+- 不要把 `minicom` 寫成 shell 步驟（互動程式會卡住）。自動測 AT 請用 `cmd_type=at`。
+- 需要 `sudo` 的指令會卡密碼；請改用不需 sudo 的指令，或事先設好 NOPASSWD。
+- 本次若**全部**都是 shell 步驟，不必接模組、也不會要求 COM port。
+
+**AT + `lsusb` 範例（USB 字串改完 Reset 後驗證）：**
+
+| test_id | step | enabled | cmd | cmd_type | expect_type | expect_value | timeout | wait_after | reconnect_after |
+|---------|------|---------|-----|----------|-------------|--------------|---------|------------|-----------------|
+| TC_CEI226_147_SetCustom | 1 | V | `ATI` | at | contains | `OK` | 5 | 0 | N |
+| TC_CEI226_147_SetCustom | 2 | V | `AT+CFUN=5` | at | contains | `OK` | 10 | 0 | N |
+| TC_CEI226_147_SetCustom | 3 | V | `AT+QCHWCfg="usb","enable","1199","9121","Manufr_test123","Product_test123"` | at | contains | `OK` | 10 | 0 | N |
+| TC_CEI226_147_SetCustom | 4 | V | `AT^Reset` | at | contains | `OK` | 15 | 15 | V |
+| TC_CEI226_147_SetCustom | 5 | V | `lsusb -d 1199: -v` | shell | contains | `Manufr_test123` | 15 | 0 | N |
+
+Ubuntu 執行：
+
+```bash
+python3 run_from_excel.py -x testcases/CEI226-147_Linux.xlsx -p /dev/ttyACM0 -t TC_CEI226_147_SetCustom
+```
+
+只測 shell（範本內建 `TC_Shell_Smoke`，不必接模組）：
+
+```bash
+python3 run_from_excel.py -t TC_Shell_Smoke
+```
 
 ### 4.3 預期比對方式（expect_type）
 
@@ -249,6 +293,7 @@ Excel `cmd` 寫 `{CTRLZ}` 時，框架會改送 Ctrl+Z（`0x1A`），**且不再
 |---------|------|
 | `TC_Smoke_AT` | 簡單 `AT`、`ATI` 握手，適合第一次驗證環境 |
 | `TC_GNSS_XTRA_ColdStart` | GNSS XTRA 冷開機完整流程（8 步） |
+| `TC_Shell_Smoke` | 本機 `echo`，驗證 `cmd_type=shell`（不必接模組） |
 
 ---
 
@@ -502,7 +547,8 @@ python run_from_excel.py -p COM14 -t TC_Smoke_AT -o D:\Logs\test.log -d D:\Logs\
 
 - 確認 USB 已接好、驅動已安裝。
 - 用 `--list-ports` 查看實際埠號，可能與 Config 不同（重插 USB 後埠號可能改變）。
-- 確認沒有其他程式（PuTTY、Tera Term）佔用該 COM Port。
+- Ubuntu 請用 `-p /dev/ttyACM0`（或實際裝置節點），不要填 `COM14`。
+- 確認沒有其他程式（PuTTY、Tera Term、minicom）佔用該埠。
 
 ### Q2：Excel 驗證失敗？
 
@@ -530,6 +576,13 @@ python run_from_excel.py -p COM14 -t TC_Smoke_AT -o D:\Logs\test.log -d D:\Logs\
 ### Q6：如何暫時跳過某個步驟？
 
 - 將該列 `enabled` 改為 `N`，不必刪除整列。
+
+### Q7：shell 步驟沒執行 / 在 Windows 上行為不對？
+
+- 確認該列 `cmd_type` 為 `shell`（不是空白）。
+- 框架在**執行 Python 的作業系統**上跑指令。Ubuntu 指令請在 Ubuntu 執行 `python3 run_from_excel.py`。
+- `lsusb` 若權限不足，改用不需 `sudo` 的寫法，或為該指令設定 NOPASSWD。
+- 純 shell 測項可 `-t TC_Shell_Smoke` 驗證，不必指定 `-p`。
 
 ---
 

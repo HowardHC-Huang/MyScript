@@ -23,14 +23,18 @@ REQUIRED_STEP_COLUMNS = [
 ]
 
 OPTIONAL_STEP_COLUMNS = [
+    "GROUP",
+    "cmd_type",
     "expect_label",
     "idle_timeout",
     "wait_after",
     "reconnect_after",
     "run_on_failure",
-    "check_ttff",
     "note",
+    "check_ttff",
 ]
+
+VALID_CMD_TYPES = {"at", "shell"}
 
 BOOL_TRUE = {"v", "y", "yes", "true", "1", "是"}
 BOOL_FALSE = {"n", "no", "false", "0", "否", ""}
@@ -71,6 +75,17 @@ def _parse_float(value: Any, field_name: str, row_no: int, required: bool = True
         raise ExcelLoadError(
             f"Steps 第 {row_no} 列：{field_name} 必須為數字（目前: {value!r}）"
         ) from exc
+
+
+def _parse_cmd_type(value: Any, row_no: int) -> str:
+    text = _cell_str(value).lower()
+    if not text:
+        return "at"
+    if text not in VALID_CMD_TYPES:
+        raise ExcelLoadError(
+            f"Steps 第 {row_no} 列：cmd_type 必須為 at 或 shell（目前: {value!r}）"
+        )
+    return text
 
 
 def _parse_idle_timeout(value: Any, row_no: int) -> Optional[float]:
@@ -201,6 +216,7 @@ def _row_to_step_dict(row: Dict[str, Any]) -> dict:
 
     step: dict = {
         "cmd": _cell_str(row.get("cmd")),
+        "cmd_type": _parse_cmd_type(row.get("cmd_type"), row_no),
         "expect": expect,
         "expect_label": expect_label,
         "timeout": timeout,
@@ -224,6 +240,10 @@ def _row_to_step_dict(row: Dict[str, Any]) -> dict:
     if note:
         step["note"] = note
 
+    group = _cell_str(row.get("GROUP"))
+    if group:
+        step["GROUP"] = group
+
     return step
 
 
@@ -234,7 +254,7 @@ def load_steps_from_excel(
     enabled_only: bool = True,
 ) -> List[dict]:
     """
-    從 Excel 載入指定 test_id 的 AT 步驟清單。
+    從 Excel 載入指定 test_id 的步驟清單（AT 或 shell）。
 
     回傳格式與 GNSS 腳本 build_at_steps() 相同，可直接傳入 run_at_sequence()。
     """

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""從 Excel 讀取 AT 測試步驟並執行。"""
+"""從 Excel 讀取 AT / shell 測試步驟並執行。"""
 
 import argparse
 import sys
@@ -28,7 +28,7 @@ def list_available_ports() -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="從 Excel 讀取 AT 測試步驟並執行")
+    parser = argparse.ArgumentParser(description="從 Excel 讀取 AT / shell 測試步驟並執行")
     parser.add_argument(
         "-x",
         "--excel",
@@ -190,10 +190,21 @@ def main() -> int:
             print(f"[錯誤] {exc}", file=sys.stderr)
             return 1
 
-    port = (args.port or config.get("port") or input("請輸入 serial port (例如 COM14): ")).strip().upper()
-    if not port:
-        print("未指定 port。", file=sys.stderr)
-        return 1
+    needs_serial = any(
+        step.get("cmd_type", "at") != "shell"
+        for steps in steps_by_test.values()
+        for step in steps
+    )
+    port = ""
+    if needs_serial:
+        port = (
+            args.port or config.get("port") or input("請輸入 serial port (例如 COM14 或 /dev/ttyACM0): ")
+        ).strip()
+        if port.upper().startswith("COM") and not port.startswith("/"):
+            port = port.upper()
+        if not port:
+            print("未指定 port。", file=sys.stderr)
+            return 1
 
     baudrate = args.baudrate if args.baudrate is not None else _config_int(config, "baudrate", 115200)
     serial_timeout = (
@@ -223,7 +234,10 @@ def main() -> int:
     logger.write(f"test_ids: {', '.join(test_ids)}")
     logger.write(f"Log file: {log_path}")
     logger.write(f"Data file: {data_path}")
-    logger.write(f"Target port: {port}, baudrate: {baudrate}")
+    if needs_serial:
+        logger.write(f"Target port: {port}, baudrate: {baudrate}")
+    else:
+        logger.write("本次皆為 shell 步驟，略過 serial 連線")
     logger.write(f"Total rounds per test_id: {rounds}")
     logger.write(f"default_step_wait: {default_step_wait} sec")
     logger.write(f"reconnect_max_wait: {reconnect_max_wait} sec")
@@ -232,9 +246,10 @@ def main() -> int:
     ser = None
 
     try:
-        ser = connect(port, baudrate, serial_timeout)
-        logger.write(f"已連線: {ser.port} @ {ser.baudrate} bps")
-        time.sleep(0.5)
+        if needs_serial:
+            ser = connect(port, baudrate, serial_timeout)
+            logger.write(f"已連線: {ser.port} @ {ser.baudrate} bps")
+            time.sleep(0.5)
 
         for i, test_id in enumerate(test_ids):
             if i > 0:
