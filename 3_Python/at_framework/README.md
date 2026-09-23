@@ -180,10 +180,18 @@ Excel `cmd` 寫 `{CTRLZ}` 時，框架會改送 Ctrl+Z（`0x1A`），**且不再
 - Python 必須在 Ubuntu 上跑，shell 才是 Ubuntu 指令。從 Windows 執行會走 Windows 的 cmd。
 - 舊 Excel 沒有 `cmd_type` 欄也沒關係，一律當 AT。
 - 不要把 `minicom` 寫成 shell 步驟（互動程式會卡住）。自動測 AT 請用 `cmd_type=at`。
-- 需要 `sudo` 的指令會卡密碼；請改用不需 sudo 的指令，或事先設好 NOPASSWD。
+- 需要 `sudo` 的指令會卡密碼。**不要**在 Excel 填密碼。請改用不需 sudo 的指令（見下方 USB 字串範例），或事先設好 NOPASSWD。
 - 本次若**全部**都是 shell 步驟，不必接模組、也不會要求 COM port。
 
-**AT + `lsusb` 範例（USB 字串改完 Reset 後驗證）：**
+**AT + USB 字串範例（改完 Reset 後驗證；用 sysfs，不必 sudo）：**
+
+`lsusb -v` 讀裝置字串通常要 root，自動化會停在 `password for swqa`。改讀 `/sys/bus/usb/devices/`（一般帳號可讀，內容就是裝置上的 iManufacturer / iProduct）。
+
+Excel `cmd` 請填一行：
+
+```text
+for d in /sys/bus/usb/devices/*; do [ -f "$d/idVendor" ] && grep -qx 1199 "$d/idVendor" && printf 'idVendor %s\nidProduct %s\niManufacturer %s\niProduct %s\n' "$(cat "$d/idVendor")" "$(cat "$d/idProduct")" "$(cat "$d/manufacturer")" "$(cat "$d/product")"; done
+```
 
 | test_id | step | enabled | cmd | cmd_type | expect_type | expect_value | timeout | wait_after | reconnect_after |
 |---------|------|---------|-----|----------|-------------|--------------|---------|------------|-----------------|
@@ -191,7 +199,9 @@ Excel `cmd` 寫 `{CTRLZ}` 時，框架會改送 Ctrl+Z（`0x1A`），**且不再
 | TC_CEI226_147_SetCustom | 2 | V | `AT+CFUN=5` | at | contains | `OK` | 10 | 0 | N |
 | TC_CEI226_147_SetCustom | 3 | V | `AT+QCHWCfg="usb","enable","1199","9121","Manufr_test123","Product_test123"` | at | contains | `OK` | 10 | 0 | N |
 | TC_CEI226_147_SetCustom | 4 | V | `AT^Reset` | at | contains | `OK` | 15 | 15 | V |
-| TC_CEI226_147_SetCustom | 5 | V | `lsusb -d 1199: -v` | shell | contains | `Manufr_test123` | 15 | 0 | N |
+| TC_CEI226_147_SetCustom | 5 | V | （上列 sysfs 一行） | shell | contains | `Manufr_test123` | 15 | 0 | N |
+
+若仍要用 `lsusb -v`：Excel 寫 `sudo -n lsusb ...`（`-n` 不會問密碼，沒權限就立刻 FAIL），並在 Ubuntu 為 `swqa` 設定 **僅該指令** NOPASSWD（見 Q8）。
 
 Ubuntu 執行：
 
@@ -548,6 +558,7 @@ python run_from_excel.py -p COM14 -t TC_Smoke_AT -o D:\Logs\test.log -d D:\Logs\
 - 確認 USB 已接好、驅動已安裝。
 - 用 `--list-ports` 查看實際埠號，可能與 Config 不同（重插 USB 後埠號可能改變）。
 - Ubuntu 請用 `-p /dev/ttyACM0`（或實際裝置節點），不要填 `COM14`。
+- `AT^Reset` 後 ttyACM 編號可能從 `ttyACM1` 變成 `ttyACM2`。設 `reconnect_after=V` 時，框架會改走 `/dev/serial/by-id/` 或同一顆 USB 裝置的新節點，不必手動改 `-p`。
 - 確認沒有其他程式（PuTTY、Tera Term、minicom）佔用該埠。
 
 ### Q2：Excel 驗證失敗？
@@ -567,6 +578,7 @@ python run_from_excel.py -p COM14 -t TC_Smoke_AT -o D:\Logs\test.log -d D:\Logs\
 - 慢速指令（如 XTRA 下載）將 `idle_timeout` 設為 `none`。
 - 步驟間需要等待時，調整 `wait_after`。
 - 指令會導致模組重啟時，設 `reconnect_after=V`（搭配足夠的 `wait_after`）；框架會在等待後關閉並重連 serial，最多等待 Config 的 `reconnect_max_wait` 秒。
+- Ubuntu 上 Reset 後若 `/dev/ttyACM1` 變成 `/dev/ttyACM2`，重連會自動對到新節點（優先用 `/dev/serial/by-id/`）。log 若出現 `port 已變更` 即表示有換埠。
 
 ### Q5：長時間測試中電腦休眠？
 
@@ -581,8 +593,30 @@ python run_from_excel.py -p COM14 -t TC_Smoke_AT -o D:\Logs\test.log -d D:\Logs\
 
 - 確認該列 `cmd_type` 為 `shell`（不是空白）。
 - 框架在**執行 Python 的作業系統**上跑指令。Ubuntu 指令請在 Ubuntu 執行 `python3 run_from_excel.py`。
-- `lsusb` 若權限不足，改用不需 `sudo` 的寫法，或為該指令設定 NOPASSWD。
+- `lsusb -v` 會要 sudo 密碼，自動化請改讀 `/sys/bus/usb/devices/`（見 4.2.2），或設 NOPASSWD（見 Q8）。
 - 純 shell 測項可 `-t TC_Shell_Smoke` 驗證，不必指定 `-p`。
+
+### Q8：shell 步驟出現 `password for swqa`？
+
+框架不會、也不應代填 sudo 密碼。請擇一：
+
+**作法 A（建議）：Excel 不要寫 `sudo`。**  
+驗證 USB 字串用 4.2.2 的 sysfs 指令，一般不需密碼。
+
+**作法 B：一定要用 `sudo lsusb -v`。**  
+在 Ubuntu 用 `sudo visudo -f /etc/sudoers.d/swqa-lsusb` 寫入（只放這一行，路徑以 `which lsusb` 為準）：
+
+```text
+swqa ALL=(root) NOPASSWD: /usr/bin/lsusb
+```
+
+存檔後，Excel `cmd` 用 **`sudo -n`**（不會跳出密碼提示）：
+
+```text
+sudo -n lsusb -d 1199: -v | grep -E 'iManufacturer|iProduct|idProduct|idVendor'
+```
+
+用 `sudo -n lsusb -d 1199: -v | head` 手動確認不會再問密碼後，再跑 Excel。
 
 ---
 

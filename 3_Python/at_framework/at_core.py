@@ -7,10 +7,12 @@ import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Callable, List, Optional, Tuple, Union
+from pathlib import Path
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import serial
 from serial import SerialException
+from serial.tools import list_ports
 
 Expect = Union[str, Callable[[str], bool]]
 
@@ -120,6 +122,103 @@ def close_quietly(ser: Optional[serial.Serial]) -> None:
         pass
 
 
+def _port_realpath(port: str) -> str:
+    try:
+        return str(Path(port).resolve())
+    except OSError:
+        return port
+
+
+def find_by_id_symlink(port: str) -> Optional[str]:
+    """Linux：找到指向此 tty 的 /dev/serial/by-id/ 連結（Reset 後編號會變，連結通常不變）。"""
+    by_id_dir = Path("/dev/serial/by-id")
+    if not by_id_dir.is_dir():
+        return None
+    target = _port_realpath(port)
+    for link in sorted(by_id_dir.iterdir()):
+        try:
+            if str(link.resolve()) == target:
+                return str(link)
+        except OSError:
+            continue
+    return None
+
+
+def snapshot_port(port: str) -> Dict[str, Optional[str]]:
+    """重連前記下 USB 身分，供 ttyACM 編號改變後對回同一條介面。"""
+    snap: Dict[str, Optional[str]] = {
+        "preferred": port,
+        "by_id": find_by_id_symlink(port),
+        "vid": None,
+        "pid": None,
+        "serial_number": None,
+        "location": None,
+    }
+    real = _port_realpath(port)
+    for info in list_ports.comports():
+        try:
+            same = info.device == port or str(Path(info.device).resolve()) == real
+        except OSError:
+            same = info.device == port
+        if not same:
+            continue
+        snap["vid"] = None if info.vid is None else str(info.vid)
+        snap["pid"] = None if info.pid is None else str(info.pid)
+        snap["serial_number"] = info.serial_number
+        snap["location"] = info.location
+        if snap["by_id"] is None:
+            snap["by_id"] = find_by_id_symlink(info.device)
+        break
+    return snap
+
+
+def _is_windows_com(port: str) -> bool:
+    return port.upper().startswith("COM") and not port.startswith("/")
+
+
+def resolve_reconnect_port(preferred: str, snap: Optional[Dict[str, Optional[str]]] = None) -> Optional[str]:
+    """原 port 還在就用它；否則改走 by-id 或相同 VID/PID/location 的新 tty。"""
+    candidates: List[str] = []
+
+    def add(path: Optional[str]) -> None:
+        if not path or path in candidates:
+            return
+        if _is_windows_com(path):
+            candidates.append(path)
+            return
+        try:
+            exists = Path(path).exists()
+        except OSError:
+            exists = False
+        if exists:
+            candidates.append(path)
+
+    add(preferred)
+    if snap:
+        add(snap.get("by_id"))
+        vid = snap.get("vid")
+        pid = snap.get("pid")
+        sn = snap.get("serial_number")
+        loc = snap.get("location")
+        scored: List[Tuple[int, str]] = []
+        if vid is not None:
+            for info in list_ports.comports():
+                if info.vid is None or str(info.vid) != vid:
+                    continue
+                if pid is not None and (info.pid is None or str(info.pid) != pid):
+                    continue
+                score = 0
+                if sn and info.serial_number == sn:
+                    score += 2
+                if loc and info.location == loc:
+                    score += 4
+                scored.append((score, info.device))
+            scored.sort(key=lambda item: (-item[0], item[1]))
+            for _score, device in scored:
+                add(device)
+    return candidates[0] if candidates else None
+
+
 def reconnect(
     port: str,
     baudrate: int,
@@ -129,17 +228,32 @@ def reconnect(
     max_wait_sec: float = 60.0,
     retry_interval: float = 1.0,
 ) -> serial.Serial:
-    """關閉舊連線並重試開啟 port（模組重啟後 COM 可能暫時消失）。"""
+    """關閉舊連線並重試開啟 port（模組重啟後路徑可能消失或 ttyACM 編號改變）。"""
+    snap_from = old_ser.port if old_ser is not None and old_ser.port else port
+    snap = snapshot_port(snap_from)
     close_quietly(old_ser)
-    logger.write(f"重新連線 {port}（最多等待 {max_wait_sec} 秒）...")
+
+    stable = snap.get("by_id") or port
+    logger.write(f"重新連線 {stable}（最多等待 {max_wait_sec} 秒）...")
+    if snap.get("by_id") and snap["by_id"] != port:
+        logger.write(f"穩定路徑: {snap['by_id']}（Reset 後 ttyACM 編號可能改變）")
 
     deadline = time.perf_counter() + max_wait_sec
     last_exc: Optional[BaseException] = None
     attempt = 0
     while time.perf_counter() < deadline:
         attempt += 1
+        target = resolve_reconnect_port(port, snap)
+        if target is None:
+            remaining = max(0.0, deadline - time.perf_counter())
+            if remaining <= 0:
+                break
+            time.sleep(min(retry_interval, remaining))
+            continue
         try:
-            ser = connect(port, baudrate, timeout)
+            ser = connect(target, baudrate, timeout)
+            if target != port:
+                logger.write(f"port 已變更: {port} -> {ser.port}")
             logger.write(f"重連成功: {ser.port} @ {ser.baudrate} bps（第 {attempt} 次嘗試）")
             time.sleep(0.5)
             return ser
@@ -150,7 +264,7 @@ def reconnect(
                 break
             time.sleep(min(retry_interval, remaining))
 
-    raise SerialException(f"在 {max_wait_sec} 秒內無法重連 {port}: {last_exc}")
+    raise SerialException(f"在 {max_wait_sec} 秒內無法重連 {stable}: {last_exc}")
 
 
 def _expect_label(step: dict) -> str:
@@ -194,6 +308,7 @@ def send_shell_command(
         "args": command,
         "shell": True,
         "capture_output": True,
+        "stdin": subprocess.DEVNULL,
         "text": True,
         "timeout": timeout,
         "encoding": "utf-8",
@@ -359,6 +474,8 @@ def run_at_sequence(
                 old_ser=ser,
                 max_wait_sec=reconnect_max_wait,
             )
+            if ser.port:
+                port = ser.port
 
         if break_after_step:
             break

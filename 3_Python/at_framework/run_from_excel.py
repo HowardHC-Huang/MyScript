@@ -275,6 +275,8 @@ def main() -> int:
                     serial_timeout=serial_timeout,
                     reconnect_max_wait=reconnect_max_wait,
                 )
+                if ser is not None and ser.port:
+                    port = ser.port
                 passed_count = sum(1 for r in results if r.passed)
                 round_pass = passed_count == len(at_steps) and len(results) == len(at_steps)
                 if round_pass:
