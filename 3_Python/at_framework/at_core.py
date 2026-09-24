@@ -129,8 +129,30 @@ def _port_realpath(port: str) -> str:
         return port
 
 
+def _is_windows_com(port: str) -> bool:
+    return port.upper().startswith("COM") and not port.startswith("/")
+
+
+def _iface_from_location(location: Optional[str]) -> Optional[str]:
+    if not location or "." not in location:
+        return None
+    try:
+        return str(int(location.rsplit(".", 1)[-1]))
+    except ValueError:
+        return None
+
+
+def _iface_from_by_id(path: Optional[str]) -> Optional[str]:
+    if not path:
+        return None
+    match = re.search(r"-if(\d+)", Path(path).name)
+    if not match:
+        return None
+    return str(int(match.group(1)))
+
+
 def find_by_id_symlink(port: str) -> Optional[str]:
-    """Linux：找到指向此 tty 的 /dev/serial/by-id/ 連結（Reset 後編號會變，連結通常不變）。"""
+    """Linux：找到目前指向此 tty 的 /dev/serial/by-id/ 連結。"""
     by_id_dir = Path("/dev/serial/by-id")
     if not by_id_dir.is_dir():
         return None
@@ -145,16 +167,18 @@ def find_by_id_symlink(port: str) -> Optional[str]:
 
 
 def snapshot_port(port: str) -> Dict[str, Optional[str]]:
-    """重連前記下 USB 身分，供 ttyACM 編號改變後對回同一條介面。"""
+    """重連前記下 USB 身分。by-id 檔名可能隨 iProduct 改變，故同時記下 interface。"""
     snap: Dict[str, Optional[str]] = {
         "preferred": port,
+        "realpath": _port_realpath(port),
         "by_id": find_by_id_symlink(port),
         "vid": None,
         "pid": None,
         "serial_number": None,
         "location": None,
+        "iface": None,
     }
-    real = _port_realpath(port)
+    real = snap["realpath"] or port
     for info in list_ports.comports():
         try:
             same = info.device == port or str(Path(info.device).resolve()) == real
@@ -166,57 +190,102 @@ def snapshot_port(port: str) -> Dict[str, Optional[str]]:
         snap["pid"] = None if info.pid is None else str(info.pid)
         snap["serial_number"] = info.serial_number
         snap["location"] = info.location
+        snap["iface"] = _iface_from_location(info.location) or _iface_from_by_id(snap["by_id"])
         if snap["by_id"] is None:
             snap["by_id"] = find_by_id_symlink(info.device)
+            if snap["iface"] is None:
+                snap["iface"] = _iface_from_by_id(snap["by_id"])
         break
+    if snap["iface"] is None:
+        snap["iface"] = _iface_from_by_id(snap["by_id"])
     return snap
 
 
-def _is_windows_com(port: str) -> bool:
-    return port.upper().startswith("COM") and not port.startswith("/")
+def _port_is_live(port: str) -> bool:
+    if _is_windows_com(port):
+        return True
+    real = _port_realpath(port)
+    for info in list_ports.comports():
+        if info.device == port:
+            return True
+        try:
+            if str(Path(info.device).resolve()) == real:
+                return True
+        except OSError:
+            continue
+    return False
 
 
-def resolve_reconnect_port(preferred: str, snap: Optional[Dict[str, Optional[str]]] = None) -> Optional[str]:
-    """原 port 還在就用它；否則改走 by-id 或相同 VID/PID/location 的新 tty。"""
-    candidates: List[str] = []
+def _current_by_id_for_iface(iface: Optional[str]) -> List[str]:
+    if not iface:
+        return []
+    by_id_dir = Path("/dev/serial/by-id")
+    if not by_id_dir.is_dir():
+        return []
+    found: List[str] = []
+    for link in sorted(by_id_dir.iterdir()):
+        if _iface_from_by_id(str(link)) != iface:
+            continue
+        try:
+            if link.exists():
+                found.append(str(link))
+        except OSError:
+            continue
+    return found
 
-    def add(path: Optional[str]) -> None:
-        if not path or path in candidates:
-            return
-        if _is_windows_com(path):
-            candidates.append(path)
+
+def list_reconnect_candidates(preferred: str, snap: Optional[Dict[str, Optional[str]]] = None) -> List[str]:
+    """列出目前活著、且最可能是同一條 AT 介面的 port（舊 ttyACM 殘留節點不列入）。"""
+    if _is_windows_com(preferred):
+        return [preferred]
+
+    scored: List[Tuple[int, str]] = []
+    seen = set()
+
+    def add(path: Optional[str], score: int) -> None:
+        if not path or path in seen:
             return
         try:
             exists = Path(path).exists()
         except OSError:
             exists = False
-        if exists:
-            candidates.append(path)
+        if not exists:
+            return
+        seen.add(path)
+        scored.append((score, path))
 
-    add(preferred)
-    if snap:
-        add(snap.get("by_id"))
-        vid = snap.get("vid")
-        pid = snap.get("pid")
-        sn = snap.get("serial_number")
-        loc = snap.get("location")
-        scored: List[Tuple[int, str]] = []
+    snap = snap or {}
+    vid = snap.get("vid")
+    pid = snap.get("pid")
+    sn = snap.get("serial_number")
+    loc = snap.get("location")
+    iface = snap.get("iface")
+
+    for info in list_ports.comports():
+        score = 0
         if vid is not None:
-            for info in list_ports.comports():
-                if info.vid is None or str(info.vid) != vid:
-                    continue
-                if pid is not None and (info.pid is None or str(info.pid) != pid):
-                    continue
-                score = 0
-                if sn and info.serial_number == sn:
-                    score += 2
-                if loc and info.location == loc:
-                    score += 4
-                scored.append((score, info.device))
-            scored.sort(key=lambda item: (-item[0], item[1]))
-            for _score, device in scored:
-                add(device)
-    return candidates[0] if candidates else None
+            if info.vid is None or str(info.vid) != vid:
+                continue
+            score += 10
+            if pid is not None and info.pid is not None and str(info.pid) == pid:
+                score += 3
+            if sn and info.serial_number == sn:
+                score += 20
+            if loc and info.location == loc:
+                score += 50
+            info_iface = _iface_from_location(info.location)
+            if iface and info_iface == iface:
+                score += 40
+        add(info.device, score)
+
+    for link in _current_by_id_for_iface(iface):
+        add(link, 80)
+
+    if not scored and vid is None and _port_is_live(preferred):
+        add(preferred, 1)
+
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    return [path for _score, path in scored]
 
 
 def reconnect(
@@ -228,43 +297,72 @@ def reconnect(
     max_wait_sec: float = 60.0,
     retry_interval: float = 1.0,
 ) -> serial.Serial:
-    """關閉舊連線並重試開啟 port（模組重啟後路徑可能消失或 ttyACM 編號改變）。"""
+    """關閉舊連線並重連。Reset 後 ttyACM 編號、by-id 檔名都可能變，改對 USB 介面並用 AT 確認。"""
     snap_from = old_ser.port if old_ser is not None and old_ser.port else port
     snap = snapshot_port(snap_from)
+    old_key = snap.get("realpath") or snap_from
     close_quietly(old_ser)
 
-    stable = snap.get("by_id") or port
-    logger.write(f"重新連線 {stable}（最多等待 {max_wait_sec} 秒）...")
-    if snap.get("by_id") and snap["by_id"] != port:
-        logger.write(f"穩定路徑: {snap['by_id']}（Reset 後 ttyACM 編號可能改變）")
+    logger.write(
+        "重新連線 "
+        f"vid={snap.get('vid')} pid={snap.get('pid')} "
+        f"iface={snap.get('iface')} location={snap.get('location')} "
+        f"（最多等待 {max_wait_sec} 秒）..."
+    )
+    if snap.get("by_id"):
+        logger.write(f"Reset 前 by-id: {snap['by_id']}（iProduct 改變後檔名可能不同，僅供參考）")
 
     deadline = time.perf_counter() + max_wait_sec
     last_exc: Optional[BaseException] = None
     attempt = 0
+    last_candidates: Optional[List[str]] = None
+
+    if not _is_windows_com(port):
+        drop_deadline = time.perf_counter() + min(15.0, max_wait_sec)
+        while time.perf_counter() < drop_deadline:
+            if not _port_is_live(old_key) and not _port_is_live(port):
+                logger.write("舊 port 已從系統消失，開始尋找新的 tty")
+                break
+            time.sleep(0.2)
+        else:
+            if _port_is_live(old_key) or _port_is_live(port):
+                logger.write("舊 port 仍在；若接下來連到錯誤的 tty，請加大 wait_after")
+
     while time.perf_counter() < deadline:
         attempt += 1
-        target = resolve_reconnect_port(port, snap)
-        if target is None:
-            remaining = max(0.0, deadline - time.perf_counter())
-            if remaining <= 0:
-                break
-            time.sleep(min(retry_interval, remaining))
-            continue
-        try:
-            ser = connect(target, baudrate, timeout)
-            if target != port:
-                logger.write(f"port 已變更: {port} -> {ser.port}")
-            logger.write(f"重連成功: {ser.port} @ {ser.baudrate} bps（第 {attempt} 次嘗試）")
-            time.sleep(0.5)
-            return ser
-        except SerialException as exc:
-            last_exc = exc
-            remaining = max(0.0, deadline - time.perf_counter())
-            if remaining <= 0:
-                break
-            time.sleep(min(retry_interval, remaining))
+        candidates = list_reconnect_candidates(port, snap)
+        if candidates != last_candidates:
+            logger.write(f"候選 port: {', '.join(candidates) if candidates else '(尚無)'}")
+            last_candidates = candidates
 
-    raise SerialException(f"在 {max_wait_sec} 秒內無法重連 {stable}: {last_exc}")
+        for target in candidates:
+            ser: Optional[serial.Serial] = None
+            try:
+                ser = connect(target, baudrate, timeout)
+                passed, _response = send_at_command(ser, "AT", "OK", timeout=2.0, idle_timeout=0.3)
+                if not passed:
+                    logger.write(f"跳過 {target}：未回應 AT OK（可能不是 AT 埠或模組尚未就緒）")
+                    close_quietly(ser)
+                    continue
+                opened = ser.port or target
+                if _port_realpath(opened) != _port_realpath(port) and opened != port:
+                    logger.write(f"port 已變更: {port} -> {opened}")
+                logger.write(f"重連成功: {opened} @ {ser.baudrate} bps（第 {attempt} 次嘗試）")
+                time.sleep(0.5)
+                return ser
+            except SerialException as exc:
+                last_exc = exc
+                close_quietly(ser)
+
+        remaining = max(0.0, deadline - time.perf_counter())
+        if remaining <= 0:
+            break
+        time.sleep(min(retry_interval, remaining))
+
+    raise SerialException(
+        f"在 {max_wait_sec} 秒內無法重連到可回應 AT 的 port"
+        f"（iface={snap.get('iface')}, 最後錯誤: {last_exc}）"
+    )
 
 
 def _expect_label(step: dict) -> str:

@@ -558,7 +558,7 @@ python run_from_excel.py -p COM14 -t TC_Smoke_AT -o D:\Logs\test.log -d D:\Logs\
 - 確認 USB 已接好、驅動已安裝。
 - 用 `--list-ports` 查看實際埠號，可能與 Config 不同（重插 USB 後埠號可能改變）。
 - Ubuntu 請用 `-p /dev/ttyACM0`（或實際裝置節點），不要填 `COM14`。
-- `AT^Reset` 後 ttyACM 編號可能從 `ttyACM1` 變成 `ttyACM2`。設 `reconnect_after=V` 時，框架會改走 `/dev/serial/by-id/` 或同一顆 USB 裝置的新節點，不必手動改 `-p`。
+- `AT^Reset` 後 ttyACM 編號可能從 `ttyACM1` 變成 `ttyACM2`。設 `reconnect_after=V` 時，框架會等舊埠消失，再對同一條 USB 介面找新 tty，並用 `AT`/`OK` 確認。`AT+QCHWCfg` 改 iProduct 後 `/dev/serial/by-id/` 檔名也會變，所以不能只連舊的 by-id 路徑。
 - 確認沒有其他程式（PuTTY、Tera Term、minicom）佔用該埠。
 
 ### Q2：Excel 驗證失敗？
@@ -578,7 +578,7 @@ python run_from_excel.py -p COM14 -t TC_Smoke_AT -o D:\Logs\test.log -d D:\Logs\
 - 慢速指令（如 XTRA 下載）將 `idle_timeout` 設為 `none`。
 - 步驟間需要等待時，調整 `wait_after`。
 - 指令會導致模組重啟時，設 `reconnect_after=V`（搭配足夠的 `wait_after`）；框架會在等待後關閉並重連 serial，最多等待 Config 的 `reconnect_max_wait` 秒。
-- Ubuntu 上 Reset 後若 `/dev/ttyACM1` 變成 `/dev/ttyACM2`，重連會自動對到新節點（優先用 `/dev/serial/by-id/`）。log 若出現 `port 已變更` 即表示有換埠。
+- Ubuntu 上 Reset 後若 `/dev/ttyACM1` 變成 `/dev/ttyACM2`，重連會自動找新節點（對 USB 介面，不依賴舊 by-id 檔名）。log 會列出 `候選 port`，成功時出現 `port 已變更`。
 
 ### Q5：長時間測試中電腦休眠？
 
